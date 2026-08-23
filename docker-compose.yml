@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: signal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-signal}
+      POSTGRES_USER: ${POSTGRES_USER:-signal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signal}
+    ports:
+      # Host 5433 -> container 5432, so this never collides with a
+      # Postgres someone already has installed locally on 5432.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - signal_pgdata:/var/lib/postgresql/data
+      - ./storage/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-signal} -d ${POSTGRES_DB:-signal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  signal_pgdata:
