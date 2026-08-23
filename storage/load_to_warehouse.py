@@ -36,8 +36,8 @@ log = logging.getLogger("load_to_warehouse")
 COLUMNS = [
     "source", "job_id", "company_name", "job_title", "location", "posted_date",
     "salary_min", "salary_max", "salary_is_predicted", "description_raw",
-    "category", "redirect_url", "latitude", "longitude", "search_term",
-    "ingested_at", "last_seen",
+    "category", "redirect_url", "latitude", "longitude", "location_state",
+    "location_area", "search_term", "ingested_at", "last_seen",
 ]
 
 # On conflict, refresh everything that can legitimately change on a repost,
@@ -57,6 +57,8 @@ ON CONFLICT (source, job_id) DO UPDATE SET
     description_raw     = EXCLUDED.description_raw,
     category            = EXCLUDED.category,
     redirect_url        = EXCLUDED.redirect_url,
+    location_state      = EXCLUDED.location_state,
+    location_area       = EXCLUDED.location_area,
     search_term         = EXCLUDED.search_term,
     ingested_at         = EXCLUDED.ingested_at,
     last_seen           = EXCLUDED.last_seen
@@ -80,6 +82,16 @@ def _bool(value):
     return str(value) == "1"
 
 
+def _state(posting: dict):
+    """
+    Adzuna nests location as ["US", "<state>", "<county>", "<city>"].
+    The flat display_name only carries city and county, so the state - the
+    field anyone actually filters a job search on - has to come from here.
+    """
+    area = (posting.get("location") or {}).get("area") or []
+    return area[1] if len(area) > 1 else None
+
+
 def flatten(posting: dict, meta: dict, seen_at: str) -> tuple:
     """Map one Adzuna posting onto the raw_postings columns."""
     return (
@@ -97,6 +109,8 @@ def flatten(posting: dict, meta: dict, seen_at: str) -> tuple:
         posting.get("redirect_url"),
         _num(posting.get("latitude")),
         _num(posting.get("longitude")),
+        _state(posting),
+        json.dumps((posting.get("location") or {}).get("area") or []),
         meta.get("search_term"),
         meta.get("ingested_at"),
         seen_at,

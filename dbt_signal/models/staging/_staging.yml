@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: stg_jobs
+    description: Cleaned, deduplicated postings with derived seniority and staleness.
+    columns:
+      - name: job_id
+        description: Unique within a source.
+        tests: [not_null]
+      - name: company_name
+        tests: [not_null]
+      - name: seniority
+        tests:
+          - accepted_values:
+              values: ['intern', 'entry', 'mid', 'senior']
+      - name: days_since_posted
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      # The whole point of the staging layer is that this grain is unique.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [source, job_id]

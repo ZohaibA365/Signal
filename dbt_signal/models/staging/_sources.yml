@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: signal
+    schema: public
+    tables:
+      - name: raw_postings
+        description: Raw job postings loaded from S3, one row per (source, job_id).
+        columns:
+          - name: job_id
+            tests: [not_null]
+          - name: source
+            tests: [not_null]

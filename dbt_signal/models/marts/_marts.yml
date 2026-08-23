@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: ranked_opportunities
+    description: Heuristically ranked postings; the table the dashboard reads.
+    columns:
+      - name: job_id
+        tests: [not_null, unique]
+      - name: priority_rank
+        tests: [not_null, unique]
+      - name: opportunity_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true

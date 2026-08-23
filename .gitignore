@@ -19,7 +19,7 @@ venv/
 dbt_signal/target/
 dbt_signal/dbt_packages/
 dbt_signal/logs/
-profiles.yml
+dbt_signal/package-lock.yml
 
 # Data — raw pulls stay in S3, not in git
 data/

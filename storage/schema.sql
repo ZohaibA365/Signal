@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS raw_postings (
     redirect_url        TEXT,
     latitude            NUMERIC,
     longitude           NUMERIC,
+    -- Adzuna's location hierarchy, e.g. ["US","Tennessee","Davidson County","Nashville"].
+    -- The flat `location` string only gives city+county, so state lives here.
+    location_state      TEXT,
+    location_area       JSONB,
 
     -- Provenance: which query surfaced this posting, and when we saw it.
     search_term         TEXT,
