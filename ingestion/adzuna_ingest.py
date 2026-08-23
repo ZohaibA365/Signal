@@ -43,10 +43,21 @@ RESULTS_PER_PAGE = 50
 
 # Roles Signal tracks. Ordered by relevance to a data-engineering resume.
 SEARCH_TERMS = [
+    # Broad role coverage.
     "data engineer",
     "analytics engineer",
     "machine learning engineer",
     "ai engineer",
+    # Explicitly student-facing. Without these the feed is ~97% mid/senior
+    # roles, because a general "data engineer" query rarely returns postings
+    # that are titled as internships or new-grad positions.
+    "data engineer intern",
+    "data science intern",
+    "software engineer intern",
+    "machine learning intern",
+    "data analyst intern",
+    "new grad data engineer",
+    "entry level data engineer",
 ]
 
 # Be polite to a free-tier API.

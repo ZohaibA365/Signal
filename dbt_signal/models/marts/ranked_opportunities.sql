@@ -68,9 +68,36 @@ scored as (
 
     from joined
 
+),
+
+/*
+  Collapse to one row per distinct role.
+
+  A company posting the same job in twelve cities is one opportunity, not
+  twelve. Keeping the posting grain here let BAE Systems occupy the entire
+  top twelve with a single intern role. We keep the freshest posting and
+  record how many locations it spans, which is itself a useful signal.
+*/
+roles as (
+
+    select
+        *,
+        count(*)      over (partition by company_name, lower(job_title)) as locations_posted,
+        row_number()  over (
+            partition by company_name, lower(job_title)
+            order by days_since_posted asc, job_id
+        ) as _role_rn
+    from scored
+
+),
+
+deduped_roles as (
+
+    select * from roles where _role_rn = 1
+
 )
 
 select
     *,
     row_number() over (order by opportunity_score desc, days_since_posted asc) as priority_rank
-from scored
+from deduped_roles
