@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: signal_ai
+    schema: public
+    tables:
+      - name: job_enrichment
+        description: Per-role LLM assessment - eligibility, sponsorship, fit.
