@@ -206,7 +206,10 @@ def main() -> None:
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY is not set")
 
-    client = anthropic.Anthropic()
+    # The default 10-minute timeout with retries can wedge a run for half an
+    # hour on a single stalled request. These are short classification calls -
+    # if one has not returned in 90s it is not going to.
+    client = anthropic.Anthropic(timeout=90.0, max_retries=3)
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"), port=os.getenv("POSTGRES_PORT"),
         dbname=os.getenv("POSTGRES_DB"), user=os.getenv("POSTGRES_USER"),
