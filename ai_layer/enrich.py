@@ -224,6 +224,7 @@ def main() -> None:
             return
 
         results, written = [], 0
+        consecutive_failures = 0
         FLUSH_EVERY = 20
         # Opus 5 list price, plus the 0.1x rate on cache reads.
         RATE_IN, RATE_CACHE_READ, RATE_OUT = 5/1e6, 0.5/1e6, 25/1e6
@@ -231,8 +232,25 @@ def main() -> None:
         for i, row in enumerate(rows, 1):
             try:
                 a, usage = assess(client, row)
+                consecutive_failures = 0
             except anthropic.APIStatusError as exc:
-                log.error("  [%s/%s] %s - API error %s, skipping", i, len(rows), row[3][:40], exc.status_code)
+                consecutive_failures += 1
+                # Log the actual message, not just the status. A bare "API
+                # error 400" is useless: billing exhaustion, a malformed
+                # request and an unsupported parameter all look identical.
+                detail = getattr(exc, "message", None) or str(exc)
+                log.error("  [%s/%s] %s - HTTP %s: %s",
+                          i, len(rows), row[3][:40], exc.status_code, detail[:200])
+
+                # 4xx other than rate limiting will not fix itself by trying
+                # the next row. Exhausted credit produced 352 identical
+                # failures over ten minutes before this guard existed.
+                if exc.status_code in (400, 401, 403) and consecutive_failures >= 3:
+                    log.error("Aborting: %s consecutive HTTP %s failures. "
+                              "This is an account or request problem, not bad data. "
+                              "Rows scored so far are already saved.",
+                              consecutive_failures, exc.status_code)
+                    break
                 continue
 
             results.append((

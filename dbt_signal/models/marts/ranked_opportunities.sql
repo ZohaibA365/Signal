@@ -82,9 +82,10 @@ roles as (
 
     select
         *,
-        count(*)      over (partition by company_name, lower(job_title)) as locations_posted,
+        count(*)      over (partition by company_name, {{ normalised_title('job_title') }})
+                                                                          as locations_posted,
         row_number()  over (
-            partition by company_name, lower(job_title)
+            partition by company_name, {{ normalised_title('job_title') }}
             order by days_since_posted asc, job_id
         ) as _role_rn
     from scored
