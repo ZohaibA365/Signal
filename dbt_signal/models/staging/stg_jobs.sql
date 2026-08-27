@@ -60,6 +60,11 @@ cleaned as (
         (current_date - posted_date::date) > 60  as is_stale
 
     from source
+    -- A handful of postings (9 of 20,084) carry no employer at all - Adzuna
+    -- returns them anonymised, with location flattened to just "US". They
+    -- cannot be applied to and cannot be attributed to a company, so they are
+    -- useless downstream. The raw layer keeps them; staging drops them.
+    where nullif(trim(company_name), '') is not null
 
 ),
 

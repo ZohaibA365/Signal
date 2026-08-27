@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: signal_market
+    schema: public
+    description: >
+      Daily market observatory capture and the technology-mention bridge table.
+      market_snapshots is append-per-day and is the project's proprietary asset:
+      Adzuna's history endpoint covers only recognised job categories, so
+      per-technology demand over time exists nowhere else and must be accumulated.
+    tables:
+      - name: market_snapshots
+        columns:
+          - name: tech_slug
+            tests: [not_null]
+          - name: openings
+            tests: [not_null]
+          - name: snapshot_date
+            tests: [not_null]
+      - name: market_snapshot_companies
+      - name: market_snapshot_salary
+      - name: posting_technologies
+        description: One row per (posting, technology) mention, from ai_layer/taxonomy.py.
+        columns:
+          - name: tech_slug
+            tests: [not_null]

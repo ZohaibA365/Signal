@@ -22,13 +22,20 @@ st.set_page_config(page_title="Signal", page_icon="📡", layout="wide")
 
 @st.cache_resource
 def get_connection():
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5433"),
         dbname=os.getenv("POSTGRES_DB", "signal"),
         user=os.getenv("POSTGRES_USER", "signal"),
         password=os.getenv("POSTGRES_PASSWORD", "signal"),
     )
+    # Autocommit matters more than it looks. Without it psycopg2 opens a
+    # transaction on the first SELECT and holds it until commit - and a cached
+    # Streamlit connection never commits. A dashboard left open sat "idle in
+    # transaction" for 22 hours, which blocks any DROP/ALTER the dbt run needs
+    # and pins vacuum. Read-only dashboards should never hold a transaction.
+    conn.autocommit = True
+    return conn
 
 
 @st.cache_data(ttl=300)

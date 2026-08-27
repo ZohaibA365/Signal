@@ -4,6 +4,13 @@ config-version: 2
 
 profile: signal
 
+flags:
+  # dbt finishes the build in ~2s and then blocks indefinitely trying to
+  # flush Snowplow telemetry, because this machine's Python cannot verify
+  # SSL against the system trust store. The run had already succeeded; only
+  # the exit hung. Disabling the tracker removes the hang entirely.
+  send_anonymous_usage_stats: false
+
 model-paths: ["models"]
 test-paths: ["tests"]
 target-path: "target"

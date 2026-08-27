@@ -117,7 +117,28 @@ def s3_key(term: str, page: int, ingest_date: str) -> str:
     automatically and skip irrelevant files when querying a date range.
     """
     slug = term.replace(" ", "_")
-    return f"raw/source=adzuna/ingest_date={ingest_date}/{slug}__page{page:02d}.json"
+    return f"raw/source=adzuna/ingest_date={ingest_date}/{slug}__page{page:03d}.json"
+
+
+def existing_keys(s3, bucket: str, ingest_date: str) -> set[str]:
+    """
+    Every object already present for this date partition.
+
+    A deep backfill is ~1,100 sequential requests. Without this, a failure at
+    request 1,000 means starting over and re-spending the whole run.
+    """
+    prefix = f"raw/source=adzuna/ingest_date={ingest_date}/"
+    keys: set[str] = set()
+    token = None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        page = s3.list_objects_v2(**kwargs)
+        keys.update(o["Key"] for o in page.get("Contents", []))
+        if not page.get("IsTruncated"):
+            return keys
+        token = page.get("NextContinuationToken")
 
 
 def main() -> None:
@@ -125,6 +146,8 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=2, help="pages per search term (default 2)")
     parser.add_argument("--terms", nargs="+", default=SEARCH_TERMS, help="override search terms")
     parser.add_argument("--dry-run", action="store_true", help="fetch but do not write to S3")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip (term, page) combinations already in S3 for today")
     args = parser.parse_args()
 
     app_id = _require_env("ADZUNA_APP_ID")
@@ -138,11 +161,26 @@ def main() -> None:
 
     log.info("Ingest date %s -> s3://%s%s", ingest_date, bucket, "  (DRY RUN)" if args.dry_run else "")
 
+    already = existing_keys(s3, bucket, ingest_date) if (args.resume and not args.dry_run) else set()
+    if already:
+        log.info("Resume: %s objects already present for %s", len(already), ingest_date)
+
     total_postings = 0
     files_written = 0
+    skipped = 0
+    planned = len(args.terms) * args.pages
 
     for term in args.terms:
         for page in range(1, args.pages + 1):
+            if s3_key(term, page, ingest_date) in already:
+                skipped += 1
+                continue
+
+            done = files_written + skipped
+            if done and done % 25 == 0:
+                log.info("  progress %s/%s pages, %s postings so far",
+                         done, planned, f"{total_postings:,}")
+
             payload = fetch_page(term, page, app_id, app_key)
             results = payload.get("results", [])
 
@@ -183,7 +221,8 @@ def main() -> None:
             total_postings += len(results)
             time.sleep(SLEEP_BETWEEN_CALLS)
 
-    log.info("Done. %s postings across %s files.", total_postings, files_written)
+    log.info("Done. %s postings across %s files (%s skipped as already present).",
+             f"{total_postings:,}", files_written, skipped)
 
 
 if __name__ == "__main__":

@@ -117,3 +117,15 @@ CREATE TABLE IF NOT EXISTS market_snapshot_salary (
     posting_count  INTEGER  NOT NULL,
     PRIMARY KEY (snapshot_date, tech_slug, salary_bucket)
 );
+
+-- Technology mentions per posting, produced by ai_layer/extract_tech.py.
+-- This is the bridge between the Python taxonomy and the dbt models: dbt
+-- cannot call the matcher, so matches are materialised here and joined.
+CREATE TABLE IF NOT EXISTS posting_technologies (
+    source      TEXT NOT NULL,
+    job_id      TEXT NOT NULL,
+    tech_slug   TEXT NOT NULL,
+    PRIMARY KEY (source, job_id, tech_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_posting_tech_slug ON posting_technologies (tech_slug);
