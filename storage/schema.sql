@@ -71,3 +71,49 @@ CREATE TABLE IF NOT EXISTS job_enrichment (
 );
 
 CREATE INDEX IF NOT EXISTS idx_enrichment_fit ON job_enrichment (fit_score DESC);
+
+-- ---------------------------------------------------------------------------
+-- Market observatory tables.
+--
+-- These hold the daily demand snapshot that makes Signal more than a job
+-- board. Adzuna's `history` endpoint only covers recognised job categories -
+-- verified: it returns 12 months for "data engineer" and nothing at all for
+-- "snowflake". So a per-technology time series does not exist anywhere and
+-- has to be accumulated one day at a time. That accumulation is the asset:
+-- cloning this repo gets you the code, not the history.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    snapshot_date  DATE        NOT NULL,
+    tech_slug      TEXT        NOT NULL,
+    tech_name      TEXT        NOT NULL,
+    category       TEXT        NOT NULL,
+    search_query   TEXT        NOT NULL,
+    openings       INTEGER     NOT NULL,
+    captured_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (snapshot_date, tech_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_msnap_tech ON market_snapshots (tech_slug, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_msnap_cat  ON market_snapshots (category, snapshot_date);
+
+-- Which employers dominate hiring for a given technology.
+CREATE TABLE IF NOT EXISTS market_snapshot_companies (
+    snapshot_date  DATE        NOT NULL,
+    tech_slug      TEXT        NOT NULL,
+    company_name   TEXT        NOT NULL,
+    postings       INTEGER     NOT NULL,
+    rank           INTEGER     NOT NULL,
+    PRIMARY KEY (snapshot_date, tech_slug, company_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_msnap_co ON market_snapshot_companies (company_name, snapshot_date);
+
+-- Salary distribution per technology, as bucket -> posting count.
+CREATE TABLE IF NOT EXISTS market_snapshot_salary (
+    snapshot_date  DATE     NOT NULL,
+    tech_slug      TEXT     NOT NULL,
+    salary_bucket  INTEGER  NOT NULL,
+    posting_count  INTEGER  NOT NULL,
+    PRIMARY KEY (snapshot_date, tech_slug, salary_bucket)
+);
