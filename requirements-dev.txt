@@ -1,0 +1,18 @@
+# Full pipeline: ingestion, warehouse loading, transformation, enrichment,
+# and tests. Install with:  pip install -r requirements-dev.txt
+-r requirements.txt
+
+# Ingestion and data lake
+boto3==1.43.78
+requests==2.34.2
+
+# Transformation
+dbt-core==1.12.3
+dbt-postgres==1.11.0
+
+# LLM enrichment
+anthropic==1.0.0
+pydantic==2.13.4
+
+# Tests
+pytest==9.1.1

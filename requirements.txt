@@ -1,7 +1,11 @@
-boto3==1.43.78
-dbt-core==1.12.3
-dbt-postgres==1.11.0
+# Dependencies for the deployed dashboard ONLY.
+#
+# Streamlit Community Cloud installs from this file on every deploy, so it is
+# kept to what the two pages actually import. The pipeline's heavier
+# dependencies (dbt, boto3, anthropic) are in requirements-dev.txt: the
+# dashboard never runs them, and dbt's dependency tree is large enough to slow
+# or break a cloud build.
+streamlit==1.62.0
 pandas==3.0.5
 psycopg2-binary==2.9.12
 python-dotenv==1.2.3
-requests==2.34.2
