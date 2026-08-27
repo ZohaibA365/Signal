@@ -1,16 +1,24 @@
 {{ config(materialized='table') }}
 
 /*
-  Salary distribution per technology, from Adzuna's histogram endpoint.
+  What each technology pays, from the job board's market-wide salary histogram.
 
-  The histogram is market-wide and independent of which postings we happened
-  to collect, which makes it far more trustworthy than the per-posting salary
-  fields - ~99% of those are Adzuna's model estimates rather than figures the
-  employer published.
+  This histogram is independent of which postings Signal happened to collect,
+  which makes it far more trustworthy than the per-posting salary fields -
+  ~99% of those are model estimates rather than employer-published figures.
 
-  Buckets are lower bounds: bucket 140000 counts postings paying 140k up to
-  the next bucket. The median here is a bucket, not a precise figure, and the
-  public page should say so.
+  THE HISTOGRAM IS COARSE AND TOP-CODED. There are seven buckets and the
+  highest ($140k) is open-ended: it absorbs every posting paying 140k or more.
+  For Python that single bucket holds 21,858 of 35,411 postings. Percentiles
+  are therefore near-useless - p25, median and p75 all landed on $140,000 for
+  most technologies, which says nothing about which pays better.
+
+  So the headline metric here is pct_top_band: the share of postings in the
+  open-ended top band. That discriminates cleanly (DuckDB 95%, ClickHouse 93%
+  against a mid-70s field) and is honest about what the data can support.
+
+  weighted_mean is kept but is a LOWER BOUND, because it counts every
+  top-band posting as exactly $140k when the real figure is higher.
 */
 
 with buckets as (
@@ -28,41 +36,44 @@ with buckets as (
 
 ),
 
-weighted as (
+top_band as (
 
-    select
-        *,
-        sum(posting_count) over (partition by snapshot_date, tech_slug) as total_postings,
-        sum(posting_count) over (
-            partition by snapshot_date, tech_slug
-            order by salary_bucket
-            rows between unbounded preceding and current row
-        ) as running_count
+    select snapshot_date, max(salary_bucket) as top_bucket
     from buckets
+    group by 1
 
 ),
 
-percentiles as (
+aggregated as (
 
     select
-        snapshot_date,
-        tech_slug,
-        tech_name,
-        category,
-        total_postings,
-        -- Lowest bucket whose cumulative share crosses each threshold.
-        min(salary_bucket) filter (where running_count >= 0.25 * total_postings) as p25_bucket,
-        min(salary_bucket) filter (where running_count >= 0.50 * total_postings) as median_bucket,
-        min(salary_bucket) filter (where running_count >= 0.75 * total_postings) as p75_bucket,
-        round(sum(salary_bucket::numeric * posting_count)
-              / nullif(sum(posting_count), 0))                                   as weighted_mean
-    from weighted
-    group by 1, 2, 3, 4, 5
+        b.snapshot_date,
+        b.tech_slug,
+        b.tech_name,
+        b.category,
+        sum(b.posting_count)                                        as total_postings,
+
+        -- Headline: share of postings in the open-ended top band.
+        round(100.0 * sum(b.posting_count)
+                        filter (where b.salary_bucket >= t.top_bucket)
+              / nullif(sum(b.posting_count), 0), 1)                 as pct_top_band,
+
+        -- Lower bound only - see the note above.
+        round(sum(b.salary_bucket::numeric * b.posting_count)
+              / nullif(sum(b.posting_count), 0))                    as weighted_mean_floor,
+
+        -- Share below $80k, the other end that the buckets can actually resolve.
+        round(100.0 * sum(b.posting_count) filter (where b.salary_bucket < 80000)
+              / nullif(sum(b.posting_count), 0), 1)                 as pct_under_80k,
+
+        max(t.top_bucket)                                           as top_bucket
+    from buckets b
+    join top_band t on t.snapshot_date = b.snapshot_date
+    group by 1, 2, 3, 4
 
 )
 
 select
     *,
-    -- A thin sample makes percentiles meaningless; flag rather than hide.
-    total_postings >= 100 as sample_is_usable
-from percentiles
+    total_postings >= 150 as sample_is_usable
+from aggregated
