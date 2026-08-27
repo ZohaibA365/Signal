@@ -24,10 +24,15 @@ from __future__ import annotations
 
 import os
 
+import sys
+from pathlib import Path
+
 import pandas as pd
-import psycopg2
 import streamlit as st
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "storage"))
+from db import connect  # noqa: E402
 
 load_dotenv()
 
@@ -36,17 +41,7 @@ st.set_page_config(page_title="Signal Market Index", page_icon="📈", layout="w
 
 @st.cache_resource
 def get_connection():
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=os.getenv("POSTGRES_PORT", "5433"),
-        dbname=os.getenv("POSTGRES_DB", "signal"),
-        user=os.getenv("POSTGRES_USER", "signal"),
-        password=os.getenv("POSTGRES_PASSWORD", "signal"),
-    )
-    # Read-only dashboards must never hold a transaction open; a cached
-    # connection never commits and would sit "idle in transaction" for days.
-    conn.autocommit = True
-    return conn
+    return connect(autocommit=True)
 
 
 @st.cache_data(ttl=900)

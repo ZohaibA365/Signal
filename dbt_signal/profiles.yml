@@ -10,3 +10,18 @@ signal:
       dbname: "{{ env_var('POSTGRES_DB', 'signal') }}"
       schema: public
       threads: 4
+    # Hosted Neon warehouse behind the public dashboard. Uses the direct
+    # (non-pooler) endpoint: dbt creates and drops tables, and PgBouncer in
+    # transaction mode does not pass through everything DDL needs.
+    prod:
+      type: postgres
+      host: "ep-wispy-dew-ay07k67r.c-5.us-east-2.aws.neon.tech"
+      port: 5432
+      # No defaults here on purpose: profiles.yml is committed, so a default
+      # would put the password in git history. These must come from .env.
+      user: "{{ env_var('NEON_USER') }}"
+      password: "{{ env_var('NEON_PASSWORD') }}"
+      dbname: "neondb"
+      schema: public
+      sslmode: require
+      threads: 4
