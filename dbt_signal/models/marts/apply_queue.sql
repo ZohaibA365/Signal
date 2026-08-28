@@ -24,6 +24,12 @@ enrichment as (
 
 ),
 
+sponsorship as (
+
+    select * from {{ ref('int_company_sponsorship') }}
+
+),
+
 joined as (
 
     select
@@ -52,6 +58,15 @@ joined as (
         e.concerns,
         e.enriched_at,
 
+        -- Verified sponsorship, which supersedes the LLM's inference wherever
+        -- it exists. The model was guessing from text that states sponsorship
+        -- in under 4% of postings; these are filings the employer actually made.
+        s.sponsorship_status,
+        s.total_filings          as sponsor_filings,
+        s.certified_pct          as sponsor_certified_pct,
+        s.weighted_median_wage   as sponsor_median_wage,
+        s.latest_filing_year     as sponsor_latest_year,
+
         -- Structured score from the SQL layer, kept for comparison against
         -- the LLM's judgement.
         o.opportunity_score as heuristic_score
@@ -59,6 +74,8 @@ joined as (
     from opportunities o
     left join enrichment e
            on e.source = o.source and e.job_id = o.job_id
+    left join sponsorship s
+           on s.company_name = o.company_name
 
 ),
 
@@ -67,6 +84,9 @@ final as (
     select
         *,
         case
+            -- A citizenship or clearance requirement still overrides filing
+            -- history: an employer can sponsor widely and still have roles
+            -- that are closed to non-citizens.
             when eligibility = 'blocked'  then 'skip'
             when fit_score is null        then 'not yet scored'
             when fit_score >= 70          then 'apply now'

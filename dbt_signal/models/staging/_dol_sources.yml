@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: signal_dol
+    schema: public
+    description: >
+      US Department of Labor H-1B (LCA) disclosure filings, aggregated to
+      employer-year by processing/dol_spark.py. This is the only factual
+      sponsorship evidence in the project: job text states sponsorship in
+      under 4% of postings, so every other signal is inference.
+    tables:
+      - name: dol_employer_summary
+        columns:
+          - name: employer_key
+            tests: [not_null]
+          - name: filings
+            tests: [not_null]
+      - name: company_employer_key
+        description: >
+          Posting company name to DOL employer key, with match confidence.
+          Only 'exact' and 'prefix_strong' may be stated as fact - sampling
+          found weak prefix matches pairing unrelated organisations.
+        columns:
+          - name: company_name
+            tests: [not_null, unique]
