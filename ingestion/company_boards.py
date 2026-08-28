@@ -33,7 +33,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import requests
@@ -164,7 +164,7 @@ def _try_lever(slug: str) -> list[dict] | None:
         "location": (j.get("categories") or {}).get("location"),
         "description": _clean(j.get("descriptionPlain") or j.get("description")),
         "url": j.get("hostedUrl"),
-        "posted": (datetime.fromtimestamp(j["createdAt"] / 1000, timezone.utc).isoformat()
+        "posted": (datetime.fromtimestamp(j["createdAt"] / 1000, UTC).isoformat()
                    if j.get("createdAt") else None),
         "department": (j.get("categories") or {}).get("team"),
     } for j in jobs]
@@ -235,8 +235,8 @@ def main() -> None:
     countries = set() if "all" in args.country else set(args.country)
     bucket = os.getenv("S3_BUCKET")
     s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    ingested_at = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    ingested_at = datetime.now(UTC).isoformat()
 
     resolved, unresolved, total_kept = [], [], 0
 

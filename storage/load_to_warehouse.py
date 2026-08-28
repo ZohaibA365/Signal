@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import psycopg2
@@ -166,8 +166,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="parse but do not write")
     args = parser.parse_args()
 
-    ingest_date = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    seen_at = datetime.now(timezone.utc).isoformat()
+    ingest_date = args.date or datetime.now(UTC).strftime("%Y-%m-%d")
+    seen_at = datetime.now(UTC).isoformat()
     bucket = os.getenv("S3_BUCKET")
     if args.boards:
         prefixes = [f"raw/source=company_board/ingest_date={ingest_date}/"]

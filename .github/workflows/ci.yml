@@ -1,0 +1,93 @@
+name: CI
+
+# Runs on every push and pull request. Deliberately requires NO secrets: it
+# spins up its own Postgres, seeds a small fixture and builds the whole dbt
+# project against it. A pipeline whose tests only run when credentials are
+# present is a pipeline whose tests stop running.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests and dbt build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: signal
+          POSTGRES_USER: signal
+          POSTGRES_PASSWORD: signal
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U signal"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5433
+      POSTGRES_DB: signal
+      POSTGRES_USER: signal
+      POSTGRES_PASSWORD: signal
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt ruff
+
+      - name: Lint
+        run: ruff check ingestion storage ai_layer outreach streaming quality processing tests
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Apply schema
+        run: psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -f storage/schema.sql
+
+      - name: Seed fixture
+        run: psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -f tests/fixtures/seed_ci.sql
+
+      - name: dbt build
+        working-directory: dbt_signal
+        run: dbt build --profiles-dir . --no-version-check
+
+      - name: Verify the fixture exercised the logic it was written for
+        run: |
+          psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -c "
+            DO \$\$
+            DECLARE n int;
+            BEGIN
+              -- staging must drop the posting with no employer
+              SELECT count(*) INTO n FROM stg_jobs WHERE company_name IS NULL;
+              IF n <> 0 THEN RAISE EXCEPTION 'null-company posting survived staging'; END IF;
+
+              -- the two Globex rows differ only by the city in the title
+              SELECT count(*) INTO n FROM ranked_opportunities WHERE company_name = 'Globex';
+              IF n <> 1 THEN RAISE EXCEPTION 'title dedup failed: got % rows', n; END IF;
+
+              -- a predicted salary must never reach the reported column
+              SELECT count(*) INTO n FROM stg_jobs
+              WHERE salary_min_reported IS NOT NULL AND salary_is_predicted;
+              IF n <> 0 THEN RAISE EXCEPTION 'estimated salary leaked into reported'; END IF;
+
+              -- seniority classification
+              SELECT count(*) INTO n FROM stg_jobs WHERE seniority = 'intern';
+              IF n < 2 THEN RAISE EXCEPTION 'seniority regex missed internships'; END IF;
+            END \$\$;"

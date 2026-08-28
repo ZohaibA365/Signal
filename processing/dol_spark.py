@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 
-from pyspark.sql import SparkSession, functions as F, Window
+from pyspark.sql import SparkSession, Window
+from pyspark.sql import functions as F
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("dol_spark")

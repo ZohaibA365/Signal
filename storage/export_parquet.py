@@ -28,9 +28,9 @@ from __future__ import annotations
 import argparse
 import io
 import logging
-import warnings
 import os
 import sys
+import warnings
 
 import boto3
 import pandas as pd
@@ -107,7 +107,7 @@ def export(name: str, spec: dict, conn, destination: str | None) -> None:
         size = 0
         for keys, group in df.groupby(spec["partition_on"], dropna=False):
             keys = keys if isinstance(keys, tuple) else (keys,)
-            parts = "/".join(f"{col}={val}" for col, val in zip(spec["partition_on"], keys))
+            parts = "/".join(f"{col}={val}" for col, val in zip(spec["partition_on"], keys, strict=True))
             buf = io.BytesIO()
             pq.write_table(pa.Table.from_pandas(group.drop(columns=spec["partition_on"]),
                                                 preserve_index=False),

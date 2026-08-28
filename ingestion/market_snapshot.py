@@ -28,7 +28,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import psycopg2
@@ -143,7 +143,7 @@ def main() -> None:
 
     auth = _auth()
     techs = tracked()
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     calls = len(techs) * (1 if args.counts_only else 3)
     log.info("Snapshot %s: %s technologies, ~%s API calls, ~%.0fs",
              today, len(techs), calls, calls * SLEEP)

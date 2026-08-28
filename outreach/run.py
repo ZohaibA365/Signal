@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = os.path.join(ROOT, ".venv", "bin", "python")

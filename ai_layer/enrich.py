@@ -25,14 +25,14 @@ import argparse
 import hashlib
 import logging
 import os
+from profile import ACTIVE as ACTIVE_PROFILE
+from profile import as_prompt_context
 
 import anthropic
 import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field
-
-from profile import ACTIVE as ACTIVE_PROFILE, PROFILE, as_prompt_context
 
 load_dotenv()
 

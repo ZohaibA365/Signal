@@ -26,7 +26,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from kafka import KafkaProducer
@@ -85,20 +85,20 @@ def publish_once(producer: KafkaProducer, conn, limit: int, replay: int | None) 
             cur.execute(f"SELECT last_seen_at FROM {STATE_TABLE} WHERE stream_name = %s",
                         (TOPIC,))
             row = cur.fetchone()
-            since = row[0] if row else datetime(2000, 1, 1, tzinfo=timezone.utc)
+            since = row[0] if row else datetime(2000, 1, 1, tzinfo=UTC)
 
         cur.execute(SELECT_NEW, {"since": since, "limit": limit})
         cols = [c.name for c in cur.description]
         rows = cur.fetchall()
 
         for row in rows:
-            posting = dict(zip(cols, row))
+            posting = dict(zip(cols, row, strict=True))
             producer.send(TOPIC, key=f"{posting['source']}:{posting['job_id']}",
                           value=posting)
         producer.flush()
 
         if rows and not replay:
-            newest = max(dict(zip(cols, r))["first_seen"] for r in rows)
+            newest = max(dict(zip(cols, r, strict=True))["first_seen"] for r in rows)
             cur.execute(f"""
                 INSERT INTO {STATE_TABLE} (stream_name, last_seen_at) VALUES (%s, %s)
                 ON CONFLICT (stream_name) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at

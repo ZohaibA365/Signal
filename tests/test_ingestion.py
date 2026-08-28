@@ -9,15 +9,33 @@ from adzuna_ingest import s3_key
 
 
 def test_s3_key_uses_hive_partitioning():
-    """Glue, Athena, and Spark rely on the key=value directory convention."""
+    """
+    Glue, Athena and Spark rely on the key=value directory convention.
+
+    country is part of the path because salary is quoted in local currency:
+    mixing US and Canadian postings in one partition would make any aggregate
+    over salary silently wrong.
+    """
     key = s3_key("data engineer", 1, "2026-08-23")
-    assert key == "raw/source=adzuna/ingest_date=2026-08-23/data_engineer__page01.json"
+    assert key == ("raw/source=adzuna/country=us/ingest_date=2026-08-23/"
+                   "data_engineer__page001.json")
+
+
+def test_s3_key_separates_countries():
+    us = s3_key("data engineer", 1, "2026-08-23", "us")
+    ca = s3_key("data engineer", 1, "2026-08-23", "ca")
+    assert "country=us" in us and "country=ca" in ca
+    assert us != ca
 
 
 def test_s3_key_zero_pads_page_numbers():
-    """Zero padding keeps pages in lexical order in listings."""
-    assert "page02" in s3_key("data engineer", 2, "2026-08-23")
-    assert "page10" in s3_key("data engineer", 10, "2026-08-23")
+    """
+    Three digits, not two: deep backfills reach page 100+, and two-digit
+    padding would sort page100 before page11 in a listing.
+    """
+    assert "page002" in s3_key("data engineer", 2, "2026-08-23")
+    assert "page010" in s3_key("data engineer", 10, "2026-08-23")
+    assert "page100" in s3_key("data engineer", 100, "2026-08-23")
 
 
 def test_s3_key_slugs_multiword_terms():

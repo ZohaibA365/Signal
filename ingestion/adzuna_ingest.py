@@ -23,7 +23,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import requests
@@ -162,8 +162,8 @@ def main() -> None:
     region = os.getenv("AWS_REGION", "us-east-1")
 
     s3 = boto3.client("s3", region_name=region)
-    ingest_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    ingested_at = datetime.now(timezone.utc).isoformat()
+    ingest_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    ingested_at = datetime.now(UTC).isoformat()
 
     log.info("Ingest date %s -> s3://%s%s", ingest_date, bucket, "  (DRY RUN)" if args.dry_run else "")
 

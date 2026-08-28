@@ -38,11 +38,10 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "storage"))
 from db import connect  # noqa: E402
-
 
 # Technologies so common that naming them says nothing about a company.
 # "They hire for Python" is true of essentially every employer in the index
@@ -104,7 +103,7 @@ WHERE snapshot_date = (SELECT max(snapshot_date) FROM market_demand)
 def _fetch_facts(cur, company: str) -> dict:
     cur.execute(FACTS_SQL, {"company": company})
     cols = [c.name for c in cur.description]
-    facts = dict(zip(cols, cur.fetchone()))
+    facts = dict(zip(cols, cur.fetchone(), strict=True))
     cur.execute(TOP_DEPTS_SQL, {"company": company})
     facts["top_departments"] = cur.fetchall()
     cur.execute(STACK_SQL, {"company": company})
@@ -125,7 +124,9 @@ def _is_own_product(company: str, tech_slug: str, tech_name: str) -> bool:
     recipient something about their own product and destroys the credibility
     of everything after it.
     """
-    norm = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    def norm(t: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", t.lower())
+
     c, ts, tn = norm(company), norm(tech_slug), norm(tech_name)
     return c and (c in ts or ts in c or c in tn or tn in c)
 
@@ -183,7 +184,6 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict) -> list
                 strength=80,
             ))
 
-    company_stack = {s for s, _ in facts["stack"]}
     # Deliberately NOT generating "comparable companies hire for X and they do
     # not". A technology missing from job postings is not evidence it is
     # missing from the stack - Stripe almost certainly runs dbt-shaped tooling

@@ -55,6 +55,18 @@ class TestStateExtraction:
 
 
 class TestFlatten:
+    """
+    These assert on tuple POSITIONS, which is why they broke silently when a
+    country column was inserted after job_id. Positions are asserted through
+    the COLUMNS list rather than hardcoded, so adding a column now updates the
+    tests rather than breaking them.
+    """
+
+    @staticmethod
+    def field(row, name):
+        from load_to_warehouse import COLUMNS
+        return row[COLUMNS.index(name)]
+
     def _posting(self):
         return {
             "id": "5123456789",
@@ -77,23 +89,23 @@ class TestFlatten:
 
     def test_maps_core_fields(self):
         row = flatten(self._posting(), self._meta(), "2026-08-23T07:00:00Z")
-        assert row[0] == "adzuna"
-        assert row[1] == "5123456789"
-        assert row[2] == "Acme Corp"
-        assert row[3] == "Data Engineer Intern"
+        assert self.field(row, "source") == "adzuna"
+        assert self.field(row, "job_id") == "5123456789"
+        assert self.field(row, "company_name") == "Acme Corp"
+        assert self.field(row, "job_title") == "Data Engineer Intern"
 
     def test_job_id_is_string_even_when_numeric(self):
         """job_id is half the primary key; a type flip would break upserts."""
         row = flatten(self._posting(), self._meta(), "2026-08-23T07:00:00Z")
-        assert isinstance(row[1], str)
+        assert isinstance(self.field(row, "job_id"), str)
 
     def test_handles_missing_nested_objects(self):
         """Adzuna sometimes omits company or location entirely."""
         bare = {"id": "1", "title": "Data Engineer"}
         row = flatten(bare, self._meta(), "2026-08-23T07:00:00Z")
-        assert row[2] is None      # company_name
-        assert row[4] is None      # location
+        assert self.field(row, "company_name") is None
+        assert self.field(row, "location") is None
 
     def test_predicted_salary_flag_survives_as_boolean(self):
         row = flatten(self._posting(), self._meta(), "2026-08-23T07:00:00Z")
-        assert row[8] is True
+        assert self.field(row, "salary_is_predicted") is True
