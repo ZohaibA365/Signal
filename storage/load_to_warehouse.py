@@ -21,12 +21,16 @@ import argparse
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 
 import boto3
 import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from location import clean_department, parse_location  # noqa: E402
 
 load_dotenv()
 
@@ -97,29 +101,25 @@ def flatten_board(posting: dict, meta: dict, seen_at: str) -> tuple:
     Map one career-board posting (Greenhouse/Lever/Ashby) onto raw_postings.
 
     Boards give full descriptions rather than Adzuna's 500-character excerpt,
-    and no salary, so the salary fields stay null rather than being filled
-    with an estimate.
+    and carry no salary, so salary fields stay null rather than being filled
+    with an estimate. Location and department both go through the shared
+    parser - board formats vary enough that naive splitting produced 63
+    distinct "states" for a single company.
     """
     loc = posting.get("location") or ""
-    state = None
-    parts = [p.strip() for p in loc.replace("-", ",").split(",") if p.strip()]
-    if len(parts) >= 2:
-        # "US-CA-Menlo Park" -> CA ; "San Francisco, California" -> California
-        state = parts[1] if len(parts[1]) > 1 else parts[-1]
-
-    country = "ca" if "canada" in loc.lower() or loc.strip().upper().startswith("CA-") else "us"
+    country, state = parse_location(loc)
 
     return (
         "company_board",
         f"{meta.get('board', 'board')}:{posting.get('job_id')}",
-        country,
+        country or "us",
         meta.get("company"),
         posting.get("title"),
         loc,
         posting.get("posted"),
         None, None, None,                      # salary_min, salary_max, is_predicted
         posting.get("description"),
-        posting.get("department"),
+        clean_department(posting.get("department")),
         posting.get("url"),
         None, None,                            # latitude, longitude
         state,
