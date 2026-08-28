@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ heading }}</h1>
+<p class="standfirst">{{ blurb }}</p>
+<div class="scroll">
+  <table>
+    <thead><tr>{% for h in headers %}<th{{ ' class="r"' | safe if loop.index0 > 0 }}>{{ h }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td><a href="{{ row.href }}">{{ row.label }}</a></td>
+        {% for v in row.cells %}<td class="r">{{ v }}</td>{% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

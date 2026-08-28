@@ -56,3 +56,6 @@ data/dol/
 
 data/dol_parquet/
 data/dol_employer_summary/
+
+# Generated static site
+site/dist/

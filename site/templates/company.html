@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>{{ c.company_name }}</h1>
+<p class="standfirst">
+  {{ c.total_postings | fmt }} tracked roles, {{ c.postings_last_30d | fmt }} posted in the
+  last 30 days{% if c.distinct_states and c.distinct_states > 1 %}, across
+  {{ c.distinct_states }} states{% endif %}.
+</p>
+
+<div class="stats">
+  <div class="stat"><b>{{ c.total_postings | fmt }}</b><span>Tracked roles</span></div>
+  <div class="stat"><b>{{ c.postings_last_30d | fmt }}</b><span>Last 30 days</span></div>
+  {% if c.pace_change_pct is not none %}
+  <div class="stat"><b>{{ '+' if c.pace_change_pct > 0 else '' }}{{ c.pace_change_pct | int }}%</b><span>Pace vs prior month</span></div>
+  {% endif %}
+  {% if c.total_filings %}
+  <div class="stat"><b>{{ c.total_filings | fmt }}</b><span>H-1B filings</span></div>
+  {% endif %}
+</div>
+
+{% if c.total_filings %}
+<section>
+  <h2>Visa sponsorship</h2>
+  <p class="lede">
+    {{ c.company_name }} filed <strong>{{ c.total_filings | fmt }}</strong> labour condition
+    applications with the US Department of Labor{% if c.years_filing %} across
+    {{ c.years_filing }} fiscal year{{ 's' if c.years_filing > 1 }}{% endif %},
+    {% if c.certified_pct %}<strong>{{ c.certified_pct }}%</strong> of them approved{% endif %}{% if c.weighted_median_wage %},
+    at a median attested wage of <strong>${{ c.weighted_median_wage | int | fmt }}</strong>{% endif %}.
+  </p>
+  <p class="note">
+    These are filings, not inferences: the employer told the government what it intended to
+    pay. Filing history shows the company <em>has</em> sponsored, not that it will for any
+    particular role.
+  </p>
+</section>
+{% else %}
+<section>
+  <h2>Visa sponsorship</h2>
+  <p class="lede">No Department of Labor filings matched this employer.</p>
+  <p class="note">
+    Absence of a match is weak evidence. Employers file under legal entity names that
+    do not always resolve to the name used on a job posting, and only matches confident
+    enough to state as fact are shown.
+  </p>
+</section>
+{% endif %}
+
+{% if techs %}
+<section>
+  <h2>What their postings ask for</h2>
+  {{ tech_table }}
+  <p class="note">Extracted from posting text with a fixed vocabulary of
+    {{ vocab_size }} technologies, so the same posting always yields the same result.</p>
+</section>
+{% endif %}
+
+{% if roles %}
+<section>
+  <h2>Open roles</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Role</th><th>Location</th><th>Level</th><th class="r">Posted</th></tr></thead>
+      <tbody>
+      {% for r in roles %}
+        <tr>
+          <td>{% if r.redirect_url %}<a href="{{ r.redirect_url }}" target="_blank" rel="noopener">{{ r.job_title }}</a>{% else %}{{ r.job_title }}{% endif %}</td>
+          <td>{{ r.location_state or (r.country or 'us') | upper }}</td>
+          <td>{{ r.seniority }}</td>
+          <td class="r">{{ r.days_since_posted }}d</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<p class="note"><a href="{{ rel }}companies/">← All companies</a></p>
+{% endblock %}

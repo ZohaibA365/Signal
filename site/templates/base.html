@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page_title }}</title>
+<meta name="description" content="{{ page_description }}">
+<link rel="canonical" href="{{ site_url }}{{ canonical }}">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ page_title }}">
+<meta property="og:description" content="{{ page_description }}">
+<meta property="og:url" content="{{ site_url }}{{ canonical }}">
+<meta property="og:site_name" content="Signal">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="{{ rel }}favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="{{ rel }}style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap inner">
+    <a class="brand" href="{{ rel }}"><b>Signal</b><span>Market Index</span></a>
+    <nav>
+      <a href="{{ rel }}"{% if nav == 'home' %} aria-current="page"{% endif %}>Index</a>
+      <a href="{{ rel }}search/"{% if nav == 'search' %} aria-current="page"{% endif %}>Find a job</a>
+      <a href="{{ rel }}companies/"{% if nav == 'companies' %} aria-current="page"{% endif %}>Companies</a>
+      <a href="{{ rel }}tech/"{% if nav == 'tech' %} aria-current="page"{% endif %}>Technologies</a>
+      <a href="{{ rel }}methodology/"{% if nav == 'methodology' %} aria-current="page"{% endif %}>Method</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+
+<footer>
+  <div class="wrap inner">
+    <span>Signal — an index of the US data and AI job market.
+      {{ stats.postings | fmt }} postings, {{ stats.companies | fmt }} employers.</span>
+    <span class="num">Updated {{ generated_at }} · <a href="{{ repo_url }}">source</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
