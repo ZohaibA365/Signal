@@ -39,3 +39,9 @@ quality/uncommitted/
 .DS_Store
 .vscode/
 .idea/
+
+# Airflow lives in its own venv so its pinned dependency tree cannot collide
+# with dbt and pandas in the main one. Neither the venv nor its runtime state
+# (metadata DB, logs, generated config) belongs in the repo.
+.venv-airflow/
+.airflow/
