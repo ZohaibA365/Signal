@@ -9,6 +9,10 @@
      company + title + location collapses to the most recently posted row.
   2. Derived attributes - seniority, staleness, and whether a salary is a real
      posted figure or one of Adzuna's model estimates.
+
+  PORTABILITY: written to run on both Postgres and Snowflake. FILTER (WHERE)
+  is Postgres-only, so counts use CASE WHEN; regex uses regexp_like(), which
+  both engines support, rather than the Postgres-only ~* operator.
 */
 
 with source as (
@@ -49,13 +53,13 @@ cleaned as (
         -- Order matters: "Senior Associate" must resolve to senior, not entry.
         -- \y is a word boundary, without which "Internal" matches "intern".
         case
-            when job_title ~* '\y(intern|interns|internship|co-?op)\y' then 'intern'
-            when job_title ~* '\y(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)\y' then 'senior'
-            when job_title ~* '\y(new grad|graduate|entry.level|junior|jr|associate|apprentice)\y' then 'entry'
+            when regexp_like(job_title, '\y(intern|interns|internship|co-?op)\y', 'i') then 'intern'
+            when regexp_like(job_title, '\y(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)\y', 'i') then 'senior'
+            when regexp_like(job_title, '\y(new grad|graduate|entry.level|junior|jr|associate|apprentice)\y', 'i') then 'entry'
             else 'mid'
         end as seniority,
 
-        job_title ~* '\y(intern|interns|internship|co-?op)\y' as is_internship,
+        regexp_like(job_title, '\y(intern|interns|internship|co-?op)\y', 'i') as is_internship,
 
         -- Adzuna keeps postings live long after they are realistically open.
         (current_date - posted_date::date) > 60  as is_stale

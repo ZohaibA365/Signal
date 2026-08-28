@@ -8,6 +8,10 @@
   engine works at, and the grain at which eligibility should be judged: a
   defence contractor's citizenship requirement is a fact about the employer,
   not about each individual req.
+
+  PORTABILITY: written to run on both Postgres and Snowflake. FILTER (WHERE)
+  is Postgres-only, so counts use CASE WHEN; regex uses regexp_like(), which
+  both engines support, rather than the Postgres-only ~* operator.
 */
 
 with postings as (
@@ -21,15 +25,13 @@ aggregated as (
     select
         company_name,
         count(*)                                                as total_postings,
-        count(*) filter (where posted_date > current_date - 30)  as postings_last_30d,
-        count(*) filter (where posted_date > current_date - 60
-                           and posted_date <= current_date - 30) as postings_prior_30d,
-        count(distinct location_state) filter (where location_state is not null)
-                                                                as distinct_states,
+        count(case when posted_date > current_date - 30 then 1 end) as postings_last_30d,
+        count(case when posted_date > current_date - 60
+                    and posted_date <= current_date - 30 then 1 end) as postings_prior_30d,
+        count(distinct location_state)                          as distinct_states,
         count(distinct country)                                 as distinct_countries,
-        count(distinct category) filter (where category is not null)
-                                                                as distinct_departments,
-        count(*) filter (where seniority = 'intern')            as intern_postings,
+        count(distinct category)                                as distinct_departments,
+        count(case when seniority = 'intern' then 1 end)        as intern_postings,
         min(posted_date)::date                                  as first_seen_posting,
         max(posted_date)::date                                  as latest_posting,
         count(distinct source)                                  as source_count

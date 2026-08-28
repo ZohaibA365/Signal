@@ -1,43 +1,35 @@
 {{ config(materialized='table') }}
 
 /*
-  Date spine covering every date the warehouse references.
+  Date spine giving the facts a conformed date key, and making month or
+  quarter grouping a join rather than a repeated date_trunc.
 
-  Built from observed min/max rather than a fixed range, so it cannot silently
-  fail to cover a backfill. Gives the facts a conformed date key and makes
-  month/quarter grouping a join instead of a repeated date_trunc.
+  PORTABILITY: uses dbt_utils.date_spine rather than generate_series, which is
+  Postgres-only. The bounds are fixed rather than derived from the data,
+  because a cross-database spine macro cannot take a subquery - so the range is
+  set wide enough to cover the full posting history (earliest observed posting
+  is 2019) and several years ahead.
 */
 
-with bounds as (
+with spine as (
 
-    select
-        least(
-            coalesce((select min(posted_date)::date from {{ ref('stg_jobs') }}), current_date),
-            coalesce((select min(snapshot_date) from {{ source('signal_market', 'market_snapshots') }}), current_date)
-        ) as start_date,
-        greatest(
-            coalesce((select max(posted_date)::date from {{ ref('stg_jobs') }}), current_date),
-            current_date
-        ) + 1 as end_date
-
-),
-
-spine as (
-
-    select generate_series(start_date, end_date, interval '1 day')::date as date_day
-    from bounds
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="cast('2018-01-01' as date)",
+        end_date="cast('2030-01-01' as date)"
+    ) }}
 
 )
 
 select
     {{ dbt_utils.generate_surrogate_key(['date_day']) }} as date_key,
-    date_day,
-    extract(year   from date_day)::int  as year,
-    extract(quarter from date_day)::int as quarter,
-    extract(month  from date_day)::int  as month,
-    to_char(date_day, 'YYYY-MM')        as year_month,
-    to_char(date_day, 'Mon YYYY')       as month_label,
-    extract(dow    from date_day)::int  as day_of_week,
-    extract(dow from date_day) in (0, 6) as is_weekend,
-    date_day > current_date              as is_future
+    cast(date_day as date)                as date_day,
+    extract(year    from date_day)        as year,
+    extract(quarter from date_day)        as quarter,
+    extract(month   from date_day)        as month,
+    to_char(cast(date_day as date), 'YYYY-MM')  as year_month,
+    to_char(cast(date_day as date), 'Mon YYYY') as month_label,
+    extract(dow from date_day)            as day_of_week,
+    extract(dow from date_day) in (0, 6)  as is_weekend,
+    cast(date_day as date) > current_date as is_future
 from spine

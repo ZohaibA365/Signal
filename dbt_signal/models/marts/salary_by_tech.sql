@@ -54,8 +54,8 @@ aggregated as (
         sum(b.posting_count)                                        as total_postings,
 
         -- Headline: share of postings in the open-ended top band.
-        round(100.0 * sum(b.posting_count)
-                        filter (where b.salary_bucket >= t.top_bucket)
+        round(100.0 * sum(case when b.salary_bucket >= t.top_bucket
+                                then b.posting_count else 0 end)
               / nullif(sum(b.posting_count), 0), 1)                 as pct_top_band,
 
         -- Lower bound only - see the note above.
@@ -63,7 +63,7 @@ aggregated as (
               / nullif(sum(b.posting_count), 0))                    as weighted_mean_floor,
 
         -- Share below $80k, the other end that the buckets can actually resolve.
-        round(100.0 * sum(b.posting_count) filter (where b.salary_bucket < 80000)
+        round(100.0 * sum(case when b.salary_bucket < 80000 then b.posting_count else 0 end)
               / nullif(sum(b.posting_count), 0), 1)                 as pct_under_80k,
 
         max(t.top_bucket)                                           as top_bucket

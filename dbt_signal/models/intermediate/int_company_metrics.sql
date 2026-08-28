@@ -26,9 +26,9 @@ metrics as (
         min(posted_date)                                    as first_posting_at,
         max(posted_date)                                    as latest_posting_at,
 
-        count(*) filter (where not is_stale)                as active_postings,
-        count(*) filter (where is_internship)               as internship_postings,
-        count(*) filter (where seniority = 'entry')         as entry_level_postings,
+        count(case when not is_stale then 1 end)                as active_postings,
+        count(case when is_internship then 1 end)               as internship_postings,
+        count(case when seniority = 'entry' then 1 end)         as entry_level_postings,
 
         round(avg(salary_min))                              as avg_salary_min,
         count(salary_min_reported)                          as postings_with_real_salary
