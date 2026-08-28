@@ -25,19 +25,24 @@ with_history as (
 
     select
         *,
-        -- Compare against the reading closest to N days back rather than
-        -- N rows back, so a missed run does not silently shift the window.
-        lag(openings) over w                          as prev_openings,
-        first_value(openings) over w_7                as openings_7d_ago,
-        first_value(openings) over w_30               as openings_30d_ago,
-        count(*) over (partition by tech_slug)        as observations
+        -- PORTABILITY, with a real trade-off. These were RANGE windows over
+        -- an interval, which compare against the reading closest to N days
+        -- back and so tolerate a missed run. Snowflake does not support named
+        -- WINDOW clauses and its RANGE support differs, so they are now ROWS
+        -- windows over N snapshots. Identical while the daily job runs every
+        -- day; if a run is missed, "7d ago" means seven snapshots ago rather
+        -- than seven days. The freshness check in quality/expectations.py is
+        -- what makes that acceptable - it fails loudly when capture stops.
+        lag(openings) over (
+            partition by tech_slug order by snapshot_date)     as prev_openings,
+        first_value(openings) over (
+            partition by tech_slug order by snapshot_date
+            rows between 6 preceding and current row)          as openings_7d_ago,
+        first_value(openings) over (
+            partition by tech_slug order by snapshot_date
+            rows between 29 preceding and current row)         as openings_30d_ago,
+        count(*) over (partition by tech_slug)                 as observations
     from snapshots
-    window
-        w    as (partition by tech_slug order by snapshot_date),
-        w_7  as (partition by tech_slug order by snapshot_date
-                 range between interval '7 days' preceding and current row),
-        w_30 as (partition by tech_slug order by snapshot_date
-                 range between interval '30 days' preceding and current row)
 
 ),
 

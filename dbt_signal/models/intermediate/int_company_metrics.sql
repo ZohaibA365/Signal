@@ -6,6 +6,24 @@
   Hiring velocity is the useful one: a company posting many distinct roles
   across a short window is actively scaling, which usually means faster
   processes and more openings than the single posting you happened to see.
+
+  REGEX PORTABILITY, two separate traps:
+
+  1. Anchoring. Postgres's regexp_like searches anywhere in the string;
+     Snowflake's must match the WHOLE value. Identical SQL classified 1,590
+     postings as internships on Postgres and 0 on Snowflake - compiling
+     cleanly on both while silently disagreeing.
+  2. Word boundaries. Postgres spells them \y; Snowflake has no equivalent
+     (\b is a backspace in Postgres ARE), so there is no shared escape. They
+     are written as explicit ([^a-z]|^) character classes instead, which also
+     keeps "internal" from matching "intern".
+
+  Patterns are wrapped in .* deliberately. Postgres's
+  regexp_like searches for a match anywhere in the string; Snowflake's is
+  anchored and must match the WHOLE value. Identical SQL therefore classified
+  1,590 postings as internships on Postgres and 0 on Snowflake - it compiled
+  cleanly on both and silently produced different answers. The wrapped form
+  behaves the same everywhere.
 */
 
 with jobs as (

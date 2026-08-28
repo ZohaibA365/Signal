@@ -13,6 +13,24 @@
   PORTABILITY: written to run on both Postgres and Snowflake. FILTER (WHERE)
   is Postgres-only, so counts use CASE WHEN; regex uses regexp_like(), which
   both engines support, rather than the Postgres-only ~* operator.
+
+  REGEX PORTABILITY, two separate traps:
+
+  1. Anchoring. Postgres's regexp_like searches anywhere in the string;
+     Snowflake's must match the WHOLE value. Identical SQL classified 1,590
+     postings as internships on Postgres and 0 on Snowflake - compiling
+     cleanly on both while silently disagreeing.
+  2. Word boundaries. Postgres spells them \y; Snowflake has no equivalent
+     (\b is a backspace in Postgres ARE), so there is no shared escape. They
+     are written as explicit ([^a-z]|^) character classes instead, which also
+     keeps "internal" from matching "intern".
+
+  Patterns are wrapped in .* deliberately. Postgres's
+  regexp_like searches for a match anywhere in the string; Snowflake's is
+  anchored and must match the WHOLE value. Identical SQL therefore classified
+  1,590 postings as internships on Postgres and 0 on Snowflake - it compiled
+  cleanly on both and silently produced different answers. The wrapped form
+  behaves the same everywhere.
 */
 
 with source as (
@@ -53,13 +71,13 @@ cleaned as (
         -- Order matters: "Senior Associate" must resolve to senior, not entry.
         -- \y is a word boundary, without which "Internal" matches "intern".
         case
-            when regexp_like(job_title, '\y(intern|interns|internship|co-?op)\y', 'i') then 'intern'
-            when regexp_like(job_title, '\y(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)\y', 'i') then 'senior'
-            when regexp_like(job_title, '\y(new grad|graduate|entry.level|junior|jr|associate|apprentice)\y', 'i') then 'entry'
+            when regexp_like(job_title, '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$', 'i') then 'intern'
+            when regexp_like(job_title, '^(.*[^a-z])?(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)([^a-z].*)?$', 'i') then 'senior'
+            when regexp_like(job_title, '^(.*[^a-z])?(new grad|graduate|entry.level|junior|jr|associate|apprentice)([^a-z].*)?$', 'i') then 'entry'
             else 'mid'
         end as seniority,
 
-        regexp_like(job_title, '\y(intern|interns|internship|co-?op)\y', 'i') as is_internship,
+        regexp_like(job_title, '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$', 'i') as is_internship,
 
         -- Adzuna keeps postings live long after they are realistically open.
         (current_date - posted_date::date) > 60  as is_stale
