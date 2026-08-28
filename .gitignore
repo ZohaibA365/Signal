@@ -45,3 +45,9 @@ quality/uncommitted/
 # (metadata DB, logs, generated config) belongs in the repo.
 .venv-airflow/
 .airflow/
+
+# Multi-hundred-MB government source files; re-downloadable, never committed.
+data/dol/
+
+data/dol_parquet/
+data/dol_employer_summary/
