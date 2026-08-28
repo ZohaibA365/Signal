@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field
 
-from profile import PROFILE, as_prompt_context
+from profile import ACTIVE as ACTIVE_PROFILE, PROFILE, as_prompt_context
 
 load_dotenv()
 
@@ -105,34 +105,49 @@ def _hash(text: str) -> str:
     return hashlib.sha256((text or "").encode()).hexdigest()[:16]
 
 
-def fetch_candidates(cur, seniority: list[str] | None, limit: int | None, force: bool):
+def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
+                     min_salary: int | None = None):
     """
-    Roles that still need scoring.
+    Roles that still need scoring, for one profile.
 
-    Reads ranked_opportunities, not stg_jobs: the marts model has already
-    collapsed one role posted across many cities into a single row. Scoring
-    the staging table would pay for the same judgement once per city.
+    Reads a marts table rather than staging: the model has already collapsed a
+    role posted across many cities into one row, so we do not pay for the same
+    judgement once per city.
+
+    The join carries `profile` because a score only means something relative to
+    the profile it was made against - the same posting is a 5 for a student and
+    an 85 for an experienced hire.
     """
+    params: dict = {"profile": profile}
     sql = """
         SELECT r.source, r.job_id, r.company_name, r.job_title, r.location_raw,
                r.location_state, r.posted_date::date, r.seniority, r.description_raw,
                r.salary_min, r.salary_is_predicted
-        FROM ranked_opportunities r
+        FROM {table} r
         LEFT JOIN job_enrichment e
                ON e.source = r.source AND e.job_id = r.job_id
+              AND e.profile = %(profile)s
         WHERE r.description_raw IS NOT NULL
-    """
-    params: list = []
+    """.replace("{table}", table)
+
     if not force:
-        # Re-score only when unscored, or when the text has changed.
-        sql += " AND (e.job_id IS NULL OR e.description_hash <> substring(encode(sha256(convert_to(r.description_raw,'UTF8')),'hex') for 16))"
+        sql += (" AND (e.job_id IS NULL OR e.description_hash <> "
+                "substring(encode(sha256(convert_to(r.description_raw,'UTF8')),'hex') for 16))")
     if seniority:
-        sql += " AND r.seniority = ANY(%s)"
-        params.append(seniority)
+        sql += " AND r.seniority = ANY(%(seniority)s)"
+        params["seniority"] = seniority
+    if min_salary:
+        # Keep postings with no salary at all: absence of a figure is not
+        # evidence the role pays badly, and ~99% of present figures are the
+        # source's estimates rather than employer-published numbers.
+        sql += " AND (r.salary_min IS NULL OR r.salary_min >= %(min_salary)s)"
+        params["min_salary"] = min_salary
+
     sql += " ORDER BY r.days_since_posted ASC"
     if limit:
-        sql += " LIMIT %s"
-        params.append(limit)
+        sql += " LIMIT %(limit)s"
+        params["limit"] = limit
+
     cur.execute(sql, params)
     return cur.fetchall()
 
@@ -179,9 +194,9 @@ UPSERT = """
 INSERT INTO job_enrichment (
     source, job_id, eligibility, eligibility_reason, sponsorship_signal,
     visa_reasoning, fit_score, fit_reasoning, tech_stack, concerns,
-    model, description_hash, enriched_at
+    model, description_hash, profile, enriched_at
 ) VALUES %s
-ON CONFLICT (source, job_id) DO UPDATE SET
+ON CONFLICT (source, job_id, profile) DO UPDATE SET
     eligibility        = EXCLUDED.eligibility,
     eligibility_reason = EXCLUDED.eligibility_reason,
     sponsorship_signal = EXCLUDED.sponsorship_signal,
@@ -201,6 +216,10 @@ def main() -> None:
     ap.add_argument("--limit", type=int, help="max postings to score this run")
     ap.add_argument("--seniority", nargs="+", help="e.g. intern entry")
     ap.add_argument("--force", action="store_true", help="re-score already-scored postings")
+    ap.add_argument("--table", default="ranked_opportunities",
+                    help="marts table or view to score from")
+    ap.add_argument("--min-salary", type=int,
+                    help="skip roles whose stated/estimated salary is below this")
     args = ap.parse_args()
 
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -217,8 +236,10 @@ def main() -> None:
     )
 
     with conn, conn.cursor() as cur:
-        rows = fetch_candidates(cur, args.seniority, args.limit, args.force)
-        log.info("%s postings to score with %s", len(rows), MODEL)
+        rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
+                                args.table, ACTIVE_PROFILE, args.min_salary)
+        log.info("%s roles to score with %s [profile=%s, table=%s]",
+                 len(rows), MODEL, ACTIVE_PROFILE, args.table)
         if not rows:
             log.info("Nothing to do - everything current is already scored.")
             return
@@ -256,7 +277,7 @@ def main() -> None:
             results.append((
                 row[0], row[1], a.eligibility, a.eligibility_reason, a.sponsorship_signal,
                 a.visa_reasoning, a.fit_score, a.fit_reasoning, a.tech_stack, a.concerns,
-                MODEL, _hash(row[8]), None,
+                MODEL, _hash(row[8]), ACTIVE_PROFILE, None,
             ))
             cost += (usage.input_tokens * RATE_IN
                      + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
@@ -268,13 +289,13 @@ def main() -> None:
             # Flush periodically rather than once at the end. A long run that
             # dies at role 150 would otherwise discard 150 paid-for API calls.
             if len(results) >= FLUSH_EVERY:
-                execute_values(cur, UPSERT, [r[:12] + ("NOW()",) for r in results], page_size=100)
+                execute_values(cur, UPSERT, [r[:13] + ("NOW()",) for r in results], page_size=100)
                 conn.commit()
                 written += len(results)
                 results = []
 
         if results:
-            execute_values(cur, UPSERT, [r[:12] + ("NOW()",) for r in results], page_size=100)
+            execute_values(cur, UPSERT, [r[:13] + ("NOW()",) for r in results], page_size=100)
             conn.commit()
             written += len(results)
 

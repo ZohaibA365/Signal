@@ -36,7 +36,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(m
 log = logging.getLogger("adzuna_ingest")
 
 API_URL = "https://api.adzuna.com/v1/api/jobs/{country}/search/{page}"
-COUNTRY = "us"
+# Adzuna exposes one endpoint per country. Salaries are quoted in that
+# country's own currency, so US and CA figures must never be compared
+# or aggregated without conversion.
+DEFAULT_COUNTRY = "us"
 
 # Adzuna caps results_per_page at 50.
 RESULTS_PER_PAGE = 50
@@ -72,7 +75,8 @@ def _require_env(name: str) -> str:
     return value
 
 
-def fetch_page(term: str, page: int, app_id: str, app_key: str) -> dict:
+def fetch_page(term: str, page: int, app_id: str, app_key: str,
+               country: str = DEFAULT_COUNTRY) -> dict:
     """Fetch one page of results, retrying on rate limits and transient errors."""
     params = {
         "app_id": app_id,
@@ -84,7 +88,7 @@ def fetch_page(term: str, page: int, app_id: str, app_key: str) -> dict:
 
     for attempt in range(1, MAX_RETRIES + 1):
         response = requests.get(
-            API_URL.format(country=COUNTRY, page=page), params=params, timeout=30
+            API_URL.format(country=country, page=page), params=params, timeout=30
         )
 
         if response.status_code == 200:
@@ -109,7 +113,7 @@ def fetch_page(term: str, page: int, app_id: str, app_key: str) -> dict:
     raise RuntimeError(f"Adzuna failed after {MAX_RETRIES} retries for '{term}' page {page}")
 
 
-def s3_key(term: str, page: int, ingest_date: str) -> str:
+def s3_key(term: str, page: int, ingest_date: str, country: str = DEFAULT_COUNTRY) -> str:
     """
     Hive-style partitioning: source=.../ingest_date=...
 
@@ -117,17 +121,17 @@ def s3_key(term: str, page: int, ingest_date: str) -> str:
     automatically and skip irrelevant files when querying a date range.
     """
     slug = term.replace(" ", "_")
-    return f"raw/source=adzuna/ingest_date={ingest_date}/{slug}__page{page:03d}.json"
+    return f"raw/source=adzuna/country={country}/ingest_date={ingest_date}/{slug}__page{page:03d}.json"
 
 
-def existing_keys(s3, bucket: str, ingest_date: str) -> set[str]:
+def existing_keys(s3, bucket: str, ingest_date: str, country: str) -> set[str]:
     """
     Every object already present for this date partition.
 
     A deep backfill is ~1,100 sequential requests. Without this, a failure at
     request 1,000 means starting over and re-spending the whole run.
     """
-    prefix = f"raw/source=adzuna/ingest_date={ingest_date}/"
+    prefix = f"raw/source=adzuna/country={country}/ingest_date={ingest_date}/"
     keys: set[str] = set()
     token = None
     while True:
@@ -146,6 +150,8 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=2, help="pages per search term (default 2)")
     parser.add_argument("--terms", nargs="+", default=SEARCH_TERMS, help="override search terms")
     parser.add_argument("--dry-run", action="store_true", help="fetch but do not write to S3")
+    parser.add_argument("--country", nargs="+", default=[DEFAULT_COUNTRY],
+                        help="Adzuna country codes, e.g. us ca")
     parser.add_argument("--resume", action="store_true",
                         help="skip (term, page) combinations already in S3 for today")
     args = parser.parse_args()
@@ -161,18 +167,22 @@ def main() -> None:
 
     log.info("Ingest date %s -> s3://%s%s", ingest_date, bucket, "  (DRY RUN)" if args.dry_run else "")
 
-    already = existing_keys(s3, bucket, ingest_date) if (args.resume and not args.dry_run) else set()
-    if already:
-        log.info("Resume: %s objects already present for %s", len(already), ingest_date)
-
     total_postings = 0
     files_written = 0
     skipped = 0
-    planned = len(args.terms) * args.pages
+    planned = len(args.terms) * args.pages * len(args.country)
 
-    for term in args.terms:
+    for country in args.country:
+      already = (existing_keys(s3, bucket, ingest_date, country)
+                 if (args.resume and not args.dry_run) else set())
+      if already:
+          log.info("Resume: %s objects already present for %s/%s",
+                   len(already), country, ingest_date)
+      log.info("Country: %s", country.upper())
+
+      for term in args.terms:
         for page in range(1, args.pages + 1):
-            if s3_key(term, page, ingest_date) in already:
+            if s3_key(term, page, ingest_date, country) in already:
                 skipped += 1
                 continue
 
@@ -181,7 +191,7 @@ def main() -> None:
                 log.info("  progress %s/%s pages, %s postings so far",
                          done, planned, f"{total_postings:,}")
 
-            payload = fetch_page(term, page, app_id, app_key)
+            payload = fetch_page(term, page, app_id, app_key, country)
             results = payload.get("results", [])
 
             if not results:
@@ -193,6 +203,7 @@ def main() -> None:
             document = {
                 "_ingestion_metadata": {
                     "source": "adzuna",
+                    "country": country,
                     "search_term": term,
                     "page": page,
                     "ingested_at": ingested_at,
@@ -202,7 +213,7 @@ def main() -> None:
                 "results": results,
             }
 
-            key = s3_key(term, page, ingest_date)
+            key = s3_key(term, page, ingest_date, country)
             if args.dry_run:
                 log.info("  would write %s postings -> %s", len(results), key)
             else:

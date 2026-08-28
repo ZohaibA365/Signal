@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(m
 log = logging.getLogger("load_to_warehouse")
 
 COLUMNS = [
-    "source", "job_id", "company_name", "job_title", "location", "posted_date",
+    "source", "job_id", "country", "company_name", "job_title", "location", "posted_date",
     "salary_min", "salary_max", "salary_is_predicted", "description_raw",
     "category", "redirect_url", "latitude", "longitude", "location_state",
     "location_area", "search_term", "ingested_at", "last_seen",
@@ -92,11 +92,50 @@ def _state(posting: dict):
     return area[1] if len(area) > 1 else None
 
 
+def flatten_board(posting: dict, meta: dict, seen_at: str) -> tuple:
+    """
+    Map one career-board posting (Greenhouse/Lever/Ashby) onto raw_postings.
+
+    Boards give full descriptions rather than Adzuna's 500-character excerpt,
+    and no salary, so the salary fields stay null rather than being filled
+    with an estimate.
+    """
+    loc = posting.get("location") or ""
+    state = None
+    parts = [p.strip() for p in loc.replace("-", ",").split(",") if p.strip()]
+    if len(parts) >= 2:
+        # "US-CA-Menlo Park" -> CA ; "San Francisco, California" -> California
+        state = parts[1] if len(parts[1]) > 1 else parts[-1]
+
+    country = "ca" if "canada" in loc.lower() or loc.strip().upper().startswith("CA-") else "us"
+
+    return (
+        "company_board",
+        f"{meta.get('board', 'board')}:{posting.get('job_id')}",
+        country,
+        meta.get("company"),
+        posting.get("title"),
+        loc,
+        posting.get("posted"),
+        None, None, None,                      # salary_min, salary_max, is_predicted
+        posting.get("description"),
+        posting.get("department"),
+        posting.get("url"),
+        None, None,                            # latitude, longitude
+        state,
+        json.dumps([]),                        # location_area
+        meta.get("company"),                   # search_term: the target company
+        meta.get("ingested_at"),
+        seen_at,
+    )
+
+
 def flatten(posting: dict, meta: dict, seen_at: str) -> tuple:
     """Map one Adzuna posting onto the raw_postings columns."""
     return (
         meta.get("source", "adzuna"),
         str(posting.get("id")),
+        meta.get("country", "us"),
         (posting.get("company") or {}).get("display_name"),
         posting.get("title"),
         (posting.get("location") or {}).get("display_name"),
@@ -121,29 +160,47 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Load raw S3 postings into Postgres")
     parser.add_argument("--date", help="ingest_date partition to load (default: today UTC)")
     parser.add_argument("--source", default="adzuna", help="source partition (default adzuna)")
+    parser.add_argument("--country", nargs="+", default=["us"], help="country partitions to load")
+    parser.add_argument("--boards", action="store_true",
+                        help="load company career-board partitions instead of Adzuna")
     parser.add_argument("--dry-run", action="store_true", help="parse but do not write")
     args = parser.parse_args()
 
     ingest_date = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     seen_at = datetime.now(timezone.utc).isoformat()
     bucket = os.getenv("S3_BUCKET")
-    prefix = f"raw/source={args.source}/ingest_date={ingest_date}/"
+    if args.boards:
+        prefixes = [f"raw/source=company_board/ingest_date={ingest_date}/"]
+    else:
+        prefixes = [f"raw/source={args.source}/country={c}/ingest_date={ingest_date}/"
+                    for c in args.country]
 
     s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    listing = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    keys: list[str] = []
+    for prefix in prefixes:
+        token = None
+        while True:
+            kw = {"Bucket": bucket, "Prefix": prefix}
+            if token:
+                kw["ContinuationToken"] = token
+            page = s3.list_objects_v2(**kw)
+            keys += [o["Key"] for o in page.get("Contents", [])]
+            if not page.get("IsTruncated"):
+                break
+            token = page.get("NextContinuationToken")
 
-    if "Contents" not in listing:
-        raise SystemExit(f"No files at s3://{bucket}/{prefix} - has ingestion run for {ingest_date}?")
+    if not keys:
+        raise SystemExit(f"No files under {prefixes} - has ingestion run for {ingest_date}?")
 
-    keys = [o["Key"] for o in listing["Contents"]]
-    log.info("Loading %s files from s3://%s/%s", len(keys), bucket, prefix)
+    log.info("Loading %s files across %s country partition(s)", len(keys), len(prefixes))
 
     rows: list[tuple] = []
     for key in keys:
         document = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
         meta = document.get("_ingestion_metadata", {})
+        mapper = flatten_board if meta.get("source") == "company_board" else flatten
         for posting in document.get("results", []):
-            rows.append(flatten(posting, meta, seen_at))
+            rows.append(mapper(posting, meta, seen_at))
 
     # The same job can surface under several search terms. Postgres rejects an
     # upsert that touches the same key twice in one statement, so collapse

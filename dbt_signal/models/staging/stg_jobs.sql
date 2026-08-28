@@ -22,6 +22,7 @@ cleaned as (
     select
         source,
         job_id,
+        country,
         nullif(trim(company_name), '')          as company_name,
         nullif(trim(job_title), '')             as job_title,
         location                                as location_raw,
@@ -105,6 +106,7 @@ select
     last_seen,
     seniority,
     is_internship,
-    is_stale
+    is_stale,
+    country
 from deduplicated
 where _row_num = 1

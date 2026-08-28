@@ -29,6 +29,7 @@ joined as (
     select
         o.source,
         o.job_id,
+        o.country,
         o.company_name,
         o.job_title,
         o.location_raw,

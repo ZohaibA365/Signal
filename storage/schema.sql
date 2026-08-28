@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS raw_postings (
     -- columns together identify a posting.
     source              TEXT        NOT NULL,
     job_id              TEXT        NOT NULL,
+    -- Adzuna has one endpoint per country and quotes salary in that
+    -- country's currency, so CAD and USD figures must never be mixed.
+    country             TEXT        NOT NULL DEFAULT 'us',
 
     company_name        TEXT,
     job_title           TEXT,
@@ -49,6 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_raw_postings_last_seen   ON raw_postings (last_se
 CREATE TABLE IF NOT EXISTS job_enrichment (
     source              TEXT        NOT NULL,
     job_id              TEXT        NOT NULL,
+    -- Adzuna has one endpoint per country and quotes salary in that
+    -- country's currency, so CAD and USD figures must never be mixed.
+    country             TEXT        NOT NULL DEFAULT 'us',
 
     -- Can this candidate legally hold the role at all?
     eligibility         TEXT,   -- eligible | blocked | unclear
@@ -67,7 +73,14 @@ CREATE TABLE IF NOT EXISTS job_enrichment (
     description_hash    TEXT        NOT NULL,
     enriched_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    PRIMARY KEY (source, job_id)
+    -- Which candidate profile produced this assessment. Signal supports more
+    -- than one (see ai_layer/profile.py), and a score is only meaningful with
+    -- respect to the profile it was scored against - a role that is a 5 for a
+    -- student can be an 85 for an experienced hire. Without this in the key,
+    -- scoring a second profile silently overwrites the first.
+    profile             TEXT        NOT NULL DEFAULT 'student',
+
+    PRIMARY KEY (source, job_id, profile)
 );
 
 CREATE INDEX IF NOT EXISTS idx_enrichment_fit ON job_enrichment (fit_score DESC);

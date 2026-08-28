@@ -193,6 +193,27 @@ TECHNOLOGIES: list[Tech] = [
     Tech("datahub", "DataHub", "quality", ("data hub",)),
     Tech("collibra", "Collibra", "quality"),
     Tech("alation", "Alation", "quality"),
+
+    # --- Mainframe / enterprise legacy -----------------------------------
+    # A whole labour market the original data-engineering vocabulary missed
+    # entirely. These roles are numerous, well paid, and almost never appear
+    # in "modern stack" discussions.
+    Tech("cobol", "COBOL", "mainframe", ("cobol ii", "enterprise cobol"), track=True),
+    Tech("mainframe", "Mainframe", "mainframe", ("z/os", "zos", "system z"), track=True),
+    Tech("jcl", "JCL", "mainframe", ("job control language",), track=True),
+    Tech("cics", "CICS", "mainframe", (), track=True),
+    Tech("db2", "Db2", "mainframe", ("ibm db2",), track=True),
+    Tech("ims", "IMS", "mainframe", (), match_name=False),
+    Tech("vsam", "VSAM", "mainframe"),
+    Tech("rexx", "REXX", "mainframe"),
+    Tech("assembler", "Assembler", "mainframe", ("hlasm", "assembly language")),
+    Tech("as400", "AS/400", "mainframe", ("iseries", "ibm i", "as400")),
+    Tech("rpg", "RPG", "mainframe", ("rpgle", "rpg iv"), match_name=False),
+    Tech("natural_adabas", "Natural/ADABAS", "mainframe", ("adabas", "software ag natural")),
+    Tech("tso", "TSO", "mainframe", ("tso/ispf", "ispf")),
+    Tech("mq", "IBM MQ", "mainframe", ("websphere mq", "mqseries")),
+    Tech("endevor", "Endevor", "mainframe", ("ca endevor",)),
+    Tech("changeman", "ChangeMan", "mainframe"),
 ]
 
 BY_SLUG: dict[str, Tech] = {t.slug: t for t in TECHNOLOGIES}
