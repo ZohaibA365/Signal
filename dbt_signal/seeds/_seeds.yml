@@ -1,0 +1,15 @@
+version: 2
+
+seeds:
+  - name: technologies
+    description: >
+      The controlled vocabulary from ai_layer/taxonomy.py, materialised so it
+      is queryable in SQL. Regenerate whenever the taxonomy changes - it is a
+      copy, and a stale copy would silently mislabel dim_technology.
+    columns:
+      - name: tech_slug
+        tests: [not_null, unique]
+      - name: category
+        tests: [not_null]
+      - name: tech_name
+        tests: [not_null]
