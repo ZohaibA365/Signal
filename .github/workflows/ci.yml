@@ -58,6 +58,13 @@ jobs:
       - name: Unit tests
         run: pytest -q
 
+      # dbt_packages/ is gitignored, so the macros dbt_utils provides are not
+      # in the checkout. Without this the build fails on the first
+      # generate_surrogate_key or accepted_range.
+      - name: Install dbt packages
+        working-directory: dbt_signal
+        run: dbt deps
+
       - name: Apply schema
         run: psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -f storage/schema.sql
 

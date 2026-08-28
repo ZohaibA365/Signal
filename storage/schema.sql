@@ -142,3 +142,63 @@ CREATE TABLE IF NOT EXISTS posting_technologies (
 );
 
 CREATE INDEX IF NOT EXISTS idx_posting_tech_slug ON posting_technologies (tech_slug);
+
+-- ---------------------------------------------------------------------------
+-- Tables that were previously created ad hoc by the scripts that populate
+-- them. That worked on a warehouse built up over time and failed on a fresh
+-- one: CI applies this file and then builds dbt, so any table a model reads
+-- has to be declared here or the build fails on a missing relation.
+-- schema.sql is the single source of truth for structure; scripts only load.
+-- ---------------------------------------------------------------------------
+
+-- DOL H-1B filings aggregated to employer-year by processing/dol_spark.py.
+CREATE TABLE IF NOT EXISTS dol_employer_summary (
+    employer_key     TEXT    NOT NULL,
+    fiscal_year      TEXT    NOT NULL,
+    employer_name    TEXT,
+    filings          INTEGER NOT NULL,
+    certified        INTEGER,
+    certified_pct    NUMERIC,
+    tech_filings     INTEGER,
+    tech_pct         NUMERIC,
+    distinct_titles  INTEGER,
+    distinct_states  INTEGER,
+    median_wage      NUMERIC,
+    p25_wage         NUMERIC,
+    p75_wage         NUMERIC,
+    max_wage         NUMERIC,
+    tech_soc_titles  TEXT[],
+    rank_in_year     INTEGER,
+    PRIMARY KEY (employer_key, fiscal_year)
+);
+CREATE INDEX IF NOT EXISTS idx_dol_employer ON dol_employer_summary (employer_key);
+
+-- Posting company name to DOL employer key. match_type grades confidence:
+-- only 'exact' and 'prefix_strong' may be stated as fact, because sampling
+-- found weak prefix matches pairing unrelated organisations.
+CREATE TABLE IF NOT EXISTS company_employer_key (
+    company_name TEXT PRIMARY KEY,
+    employer_key TEXT,
+    match_type   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_company_employer_key ON company_employer_key (employer_key);
+
+-- Streaming: what the producer has already published. Deliberately a
+-- watermark over first_seen rather than consumer offsets - offsets track what
+-- was read, this tracks what exists, which is what survives a restart.
+CREATE TABLE IF NOT EXISTS streaming_watermark (
+    stream_name  TEXT PRIMARY KEY,
+    last_seen_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posting_alerts (
+    source        TEXT NOT NULL,
+    job_id        TEXT NOT NULL,
+    company_name  TEXT,
+    job_title     TEXT,
+    reason        TEXT,
+    screen_score  INTEGER,
+    sponsorship   TEXT,
+    alerted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (source, job_id)
+);

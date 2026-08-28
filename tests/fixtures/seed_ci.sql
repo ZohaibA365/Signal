@@ -64,3 +64,20 @@ VALUES
     ('adzuna','ci-1','eligible','Text states sponsorship is available.','sponsors',
      'Posting mentions visa sponsorship.',82,'Strong term and skill match.',
      ARRAY['python','dbt'],ARRAY[]::text[],'ci-fixture','hash1','student');
+
+-- Sponsorship fixture: one employer that matches exactly and one that only
+-- matches by legal-entity prefix, so the confidence grading is exercised.
+INSERT INTO dol_employer_summary
+    (employer_key, fiscal_year, employer_name, filings, certified, certified_pct,
+     tech_filings, tech_pct, distinct_titles, distinct_states, median_wage,
+     p25_wage, p75_wage, max_wage, tech_soc_titles, rank_in_year)
+VALUES
+    ('ACME DATA','2026','Acme Data Inc.',40,40,100.0,30,75.0,12,4,
+     150000,130000,180000,220000,ARRAY['Software Developers'],12),
+    ('GLOBEX ANALYTICS','2026','Globex Analytics LLC',5,4,80.0,3,60.0,3,1,
+     120000,110000,140000,160000,ARRAY['Data Scientists'],400);
+
+INSERT INTO company_employer_key (company_name, employer_key, match_type) VALUES
+    ('Acme Data','ACME DATA','exact'),
+    ('Globex','GLOBEX ANALYTICS','prefix_strong'),
+    ('Maple Systems', NULL, NULL);
