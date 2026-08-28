@@ -10,7 +10,8 @@ models:
         tests: [not_null, unique]
       - name: total_postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, inclusive: true}
 
   - name: dim_technology
     description: Conformed technology dimension, from the seeded vocabulary.
@@ -38,13 +39,16 @@ models:
       - name: company_key
         tests:
           - not_null
-          - relationships: {to: ref('dim_company'), field: company_key}
+          - relationships:
+              arguments: {to: ref('dim_company'), field: company_key}
       - name: fit_score
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: posting_count
         tests:
-          - dbt_utils.accepted_range: {min_value: 1, max_value: 1, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, max_value: 1, inclusive: true}
 
   - name: fct_market_snapshot
     description: One row per technology per snapshot date - the compounding series.
@@ -54,8 +58,10 @@ models:
       - name: technology_key
         tests:
           - not_null
-          - relationships: {to: ref('dim_technology'), field: technology_key}
+          - relationships:
+              arguments: {to: ref('dim_technology'), field: technology_key}
       - name: openings
         tests:
           - not_null
-          - dbt_utils.accepted_range: {min_value: 0, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, inclusive: true}

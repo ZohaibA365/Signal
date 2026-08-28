@@ -1,0 +1,121 @@
+tech_slug,tech_name,category,is_tracked,search_query,alias_count
+python,Python,language,true,Python,2
+sql,SQL,language,true,SQL,1
+scala,Scala,language,true,Scala,0
+java,Java,language,false,Java,0
+golang,Go,language,false,Golang,2
+rust,Rust,language,false,Rust programming,0
+r_lang,R,language,false,R statistical,4
+typescript,TypeScript,language,false,TypeScript,1
+bash,Bash,language,false,Bash,2
+snowflake,Snowflake,warehouse,true,Snowflake,0
+databricks,Databricks,warehouse,true,Databricks,0
+bigquery,BigQuery,warehouse,true,BigQuery,2
+redshift,Redshift,warehouse,true,Redshift,1
+synapse,Azure Synapse,warehouse,true,Azure Synapse,1
+clickhouse,ClickHouse,warehouse,true,ClickHouse,1
+duckdb,DuckDB,warehouse,true,DuckDB,1
+trino,Trino,warehouse,true,Trino,2
+athena,Athena,warehouse,false,Athena,1
+teradata,Teradata,warehouse,true,Teradata,0
+vertica,Vertica,warehouse,false,Vertica,0
+firebolt,Firebolt,warehouse,false,Firebolt,0
+delta_lake,Delta Lake,format,true,Delta Lake,2
+iceberg,Apache Iceberg,format,true,Apache Iceberg,1
+hudi,Apache Hudi,format,false,Apache Hudi,1
+parquet,Parquet,format,true,Parquet,1
+avro,Avro,format,false,Avro,0
+orc,ORC,format,false,ORC,0
+airflow,Apache Airflow,orchestration,true,Apache Airflow,2
+dagster,Dagster,orchestration,true,Dagster,0
+prefect,Prefect,orchestration,true,Prefect,0
+luigi,Luigi,orchestration,false,Luigi,0
+argo,Argo Workflows,orchestration,false,Argo Workflows,1
+step_functions,AWS Step Functions,orchestration,false,AWS Step Functions,1
+azure_data_factory,Azure Data Factory,orchestration,false,Azure Data Factory,2
+dbt,dbt,transform,true,dbt analytics,1
+spark,Apache Spark,transform,true,Apache Spark,3
+flink,Apache Flink,transform,true,Apache Flink,1
+beam,Apache Beam,transform,false,Apache Beam,1
+pandas,pandas,transform,true,pandas,1
+polars,Polars,transform,true,Polars,0
+dask,Dask,transform,false,Dask,0
+ray,Ray,transform,false,Ray distributed,3
+hadoop,Hadoop,transform,true,Hadoop,2
+hive,Apache Hive,transform,false,Apache Hive,1
+fivetran,Fivetran,ingestion,true,Fivetran,0
+airbyte,Airbyte,ingestion,true,Airbyte,0
+stitch,Stitch,ingestion,false,Stitch data,0
+debezium,Debezium,ingestion,false,Debezium,2
+meltano,Meltano,ingestion,false,Meltano,0
+kafka,Apache Kafka,streaming,true,Apache Kafka,3
+kinesis,AWS Kinesis,streaming,true,AWS Kinesis,1
+pulsar,Apache Pulsar,streaming,false,Apache Pulsar,1
+rabbitmq,RabbitMQ,streaming,false,RabbitMQ,1
+pubsub,Google Pub/Sub,streaming,false,Google Pub/Sub,2
+aws,AWS,cloud,true,AWS,1
+gcp,GCP,cloud,true,GCP,2
+azure,Azure,cloud,true,Azure,1
+s3,Amazon S3,cloud,false,Amazon S3,1
+glue,AWS Glue,cloud,false,AWS Glue,1
+emr,AWS EMR,cloud,false,AWS EMR,1
+lambda_aws,AWS Lambda,cloud,false,AWS Lambda,1
+dataflow,Google Dataflow,cloud,false,Google Dataflow,1
+dataproc,Google Dataproc,cloud,false,Google Dataproc,1
+docker,Docker,infra,true,Docker,1
+kubernetes,Kubernetes,infra,true,Kubernetes,3
+terraform,Terraform,infra,true,Terraform,2
+ansible,Ansible,infra,false,Ansible,0
+github_actions,GitHub Actions,infra,false,GitHub Actions,1
+jenkins,Jenkins,infra,false,Jenkins,0
+git,Git,infra,false,Git,1
+tableau,Tableau,bi,true,Tableau,0
+looker,Looker,bi,true,Looker,1
+power_bi,Power BI,bi,true,Power BI,1
+superset,Apache Superset,bi,false,Apache Superset,1
+metabase,Metabase,bi,false,Metabase,0
+mode,Mode Analytics,bi,false,Mode Analytics,0
+sigma,Sigma Computing,bi,false,Sigma Computing,0
+quicksight,QuickSight,bi,false,QuickSight,1
+postgresql,PostgreSQL,database,true,PostgreSQL,2
+mysql,MySQL,database,false,MySQL,0
+mongodb,MongoDB,database,true,MongoDB,1
+cassandra,Cassandra,database,false,Cassandra,0
+dynamodb,DynamoDB,database,false,DynamoDB,1
+redis,Redis,database,false,Redis,0
+elasticsearch,Elasticsearch,database,false,Elasticsearch,2
+neo4j,Neo4j,database,false,Neo4j,1
+machine_learning,Machine Learning,ml,true,Machine Learning,4
+llm,LLMs,ml,true,LLM,7
+pytorch,PyTorch,ml,true,PyTorch,1
+tensorflow,TensorFlow,ml,true,TensorFlow,1
+scikit_learn,scikit-learn,ml,false,scikit-learn,2
+mlflow,MLflow,ml,true,MLflow,1
+kubeflow,Kubeflow,ml,false,Kubeflow,0
+sagemaker,AWS SageMaker,ml,true,AWS SageMaker,1
+vertex_ai,Vertex AI,ml,false,Vertex AI,1
+huggingface,Hugging Face,ml,false,Hugging Face,2
+nlp,NLP,ml,false,NLP,1
+computer_vision,Computer Vision,ml,false,Computer Vision,1
+great_expectations,Great Expectations,quality,true,Great Expectations,1
+soda,Soda,quality,false,Soda data quality,3
+monte_carlo,Monte Carlo,quality,false,Monte Carlo data,2
+datahub,DataHub,quality,false,DataHub,1
+collibra,Collibra,quality,false,Collibra,0
+alation,Alation,quality,false,Alation,0
+cobol,COBOL,mainframe,true,COBOL,2
+mainframe,Mainframe,mainframe,true,Mainframe,3
+jcl,JCL,mainframe,true,JCL,1
+cics,CICS,mainframe,true,CICS,0
+db2,Db2,mainframe,true,Db2,1
+ims,IMS,mainframe,false,IMS,0
+vsam,VSAM,mainframe,false,VSAM,0
+rexx,REXX,mainframe,false,REXX,0
+assembler,Assembler,mainframe,false,Assembler,2
+as400,AS/400,mainframe,false,AS/400,3
+rpg,RPG,mainframe,false,RPG,2
+natural_adabas,Natural/ADABAS,mainframe,false,Natural/ADABAS,2
+tso,TSO,mainframe,false,TSO,2
+mq,IBM MQ,mainframe,false,IBM MQ,2
+endevor,Endevor,mainframe,false,Endevor,1
+changeman,ChangeMan,mainframe,false,ChangeMan,0

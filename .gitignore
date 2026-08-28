@@ -25,6 +25,11 @@ dbt_signal/package-lock.yml
 data/
 *.parquet
 *.csv
+# dbt seeds are source code, not data. A blanket *.csv rule silently excluded
+# technologies.csv while committing its _seeds.yml, so CI found a declaration
+# for a seed that did not exist and every model referencing dim_technology
+# failed to compile. Local builds passed because the file was present on disk.
+!dbt_signal/seeds/*.csv
 
 # Airflow
 airflow.db

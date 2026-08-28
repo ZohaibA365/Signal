@@ -14,15 +14,18 @@ models:
       - name: openings
         tests:
           - not_null
-          - dbt_utils.accepted_range: {min_value: 0, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, inclusive: true}
       - name: pct_of_category
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: category
         tests: [not_null]
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [snapshot_date, tech_slug]
+          arguments:
+              combination_of_columns: [snapshot_date, tech_slug]
 
   - name: tech_demand_history
     description: >
@@ -37,13 +40,16 @@ models:
         tests: [not_null]
       - name: pct_of_postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, inclusive: true}
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [month, tech_slug]
+          arguments:
+              combination_of_columns: [month, tech_slug]
 
   - name: salary_by_tech
     description: >
@@ -56,16 +62,20 @@ models:
         tests: [not_null]
       - name: pct_top_band
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: pct_under_80k
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: total_postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, inclusive: true}
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [snapshot_date, tech_slug]
+          arguments:
+              combination_of_columns: [snapshot_date, tech_slug]
 
   - name: tech_cooccurrence
     description: Technology pairs appearing in the same posting, with lift.
@@ -76,13 +86,16 @@ models:
         tests: [not_null]
       - name: co_postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1, inclusive: true}
       - name: pct_of_tech_postings
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [tech_slug, co_tech_slug]
+          arguments:
+              combination_of_columns: [tech_slug, co_tech_slug]
 
   - name: apply_queue
     description: Ranked opportunities joined to the LLM assessment.
@@ -93,17 +106,21 @@ models:
         tests: [not_null, unique]
       - name: fit_score
         tests:
-          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 100, inclusive: true}
       - name: eligibility
         tests:
           - accepted_values:
-              values: ['eligible', 'blocked', 'unclear']
+              arguments:
+                  values: ['eligible', 'blocked', 'unclear']
       - name: recommendation
         tests:
           - accepted_values:
-              values: ['apply now', 'worth a look', 'low priority', 'skip', 'not yet scored']
+              arguments:
+                  values: ['apply now', 'worth a look', 'low priority', 'skip', 'not yet scored']
       - name: source
         tests:
           - relationships:
-              to: ref('ranked_opportunities')
-              field: source
+              arguments:
+                  to: ref('ranked_opportunities')
+                  field: source
