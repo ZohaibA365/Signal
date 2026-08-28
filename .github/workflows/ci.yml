@@ -38,6 +38,7 @@ jobs:
       POSTGRES_USER: signal
       POSTGRES_PASSWORD: signal
       DO_NOT_TRACK: "1"
+      PGURL: postgresql://signal:signal@localhost:5433/signal
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +47,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Install postgresql-client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: Install dependencies
         run: |
@@ -66,35 +70,28 @@ jobs:
         run: dbt deps
 
       - name: Apply schema
-        run: psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -f storage/schema.sql
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f storage/schema.sql
 
       - name: Seed fixture
-        run: psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -f tests/fixtures/seed_ci.sql
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f tests/fixtures/seed_ci.sql
 
       - name: dbt build
         working-directory: dbt_signal
         run: dbt build --profiles-dir . --no-version-check
 
-      - name: Verify the fixture exercised the logic it was written for
+      - name: Behavioural assertions
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f tests/fixtures/assert_ci_behaviour.sql
+
+      # Only runs when something above failed. Without it a red X on a private
+      # repo is unreadable from outside.
+      - name: Diagnostics on failure
+        if: failure()
         run: |
-          psql "postgresql://signal:signal@localhost:5433/signal" -v ON_ERROR_STOP=1 -c "
-            DO \$\$
-            DECLARE n int;
-            BEGIN
-              -- staging must drop the posting with no employer
-              SELECT count(*) INTO n FROM stg_jobs WHERE company_name IS NULL;
-              IF n <> 0 THEN RAISE EXCEPTION 'null-company posting survived staging'; END IF;
-
-              -- the two Globex rows differ only by the city in the title
-              SELECT count(*) INTO n FROM ranked_opportunities WHERE company_name = 'Globex';
-              IF n <> 1 THEN RAISE EXCEPTION 'title dedup failed: got % rows', n; END IF;
-
-              -- a predicted salary must never reach the reported column
-              SELECT count(*) INTO n FROM stg_jobs
-              WHERE salary_min_reported IS NOT NULL AND salary_is_predicted;
-              IF n <> 0 THEN RAISE EXCEPTION 'estimated salary leaked into reported'; END IF;
-
-              -- seniority classification
-              SELECT count(*) INTO n FROM stg_jobs WHERE seniority = 'intern';
-              IF n < 2 THEN RAISE EXCEPTION 'seniority regex missed internships'; END IF;
-            END \$\$;"
+          echo "--- versions ---"
+          python --version; dbt --version || true
+          echo "--- postgres reachable? ---"
+          psql "$PGURL" -c "select version()" || true
+          echo "--- tables present ---"
+          psql "$PGURL" -c "\\dt" || true
+          echo "--- dbt packages ---"
+          ls dbt_signal/dbt_packages 2>/dev/null || echo "dbt_packages MISSING"
