@@ -1,0 +1,109 @@
+version: 2
+
+models:
+  - name: market_demand
+    description: >
+      Daily technology demand from the market-wide index. This is the
+      trustworthy series - counts come from the job board's own index and do
+      not depend on which postings Signal happened to collect.
+    columns:
+      - name: tech_slug
+        tests: [not_null]
+      - name: snapshot_date
+        tests: [not_null]
+      - name: openings
+        tests:
+          - not_null
+          - dbt_utils.accepted_range: {min_value: 0, inclusive: true}
+      - name: pct_of_category
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+      - name: category
+        tests: [not_null]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [snapshot_date, tech_slug]
+
+  - name: tech_demand_history
+    description: >
+      Trend reconstructed from posting dates. A BIASED SAMPLE - an old posting
+      only appears if it is still listed, so older months over-represent
+      slow-to-fill roles. Only months flagged sample_is_usable may be shown,
+      and never as market-wide demand.
+    columns:
+      - name: month
+        tests: [not_null]
+      - name: tech_slug
+        tests: [not_null]
+      - name: pct_of_postings
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+      - name: postings
+        tests:
+          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [month, tech_slug]
+
+  - name: salary_by_tech
+    description: >
+      Pay per technology, as share of postings in the open-ended top salary
+      band. Percentiles are deliberately not used: the source histogram has
+      seven buckets and its highest absorbs 62% of postings, so medians
+      collapse onto one figure for nearly every technology.
+    columns:
+      - name: tech_slug
+        tests: [not_null]
+      - name: pct_top_band
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+      - name: pct_under_80k
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+      - name: total_postings
+        tests:
+          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [snapshot_date, tech_slug]
+
+  - name: tech_cooccurrence
+    description: Technology pairs appearing in the same posting, with lift.
+    columns:
+      - name: tech_slug
+        tests: [not_null]
+      - name: co_tech_slug
+        tests: [not_null]
+      - name: co_postings
+        tests:
+          - dbt_utils.accepted_range: {min_value: 1, inclusive: true}
+      - name: pct_of_tech_postings
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [tech_slug, co_tech_slug]
+
+  - name: apply_queue
+    description: Ranked opportunities joined to the LLM assessment.
+    columns:
+      - name: job_id
+        tests: [not_null]
+      - name: apply_rank
+        tests: [not_null, unique]
+      - name: fit_score
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 100, inclusive: true}
+      - name: eligibility
+        tests:
+          - accepted_values:
+              values: ['eligible', 'blocked', 'unclear']
+      - name: recommendation
+        tests:
+          - accepted_values:
+              values: ['apply now', 'worth a look', 'low priority', 'skip', 'not yet scored']
+      - name: source
+        tests:
+          - relationships:
+              to: ref('ranked_opportunities')
+              field: source

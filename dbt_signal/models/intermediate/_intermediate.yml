@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: int_company_metrics
+    description: Per-company aggregates feeding ranking and outreach insights.
+    columns:
+      - name: company_name
+        tests: [not_null, unique]
