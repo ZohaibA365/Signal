@@ -1,0 +1,70 @@
+name: Build and deploy site
+
+# Regenerates the public site from the warehouse and publishes it to GitHub
+# Pages. Runs daily so the index reflects the latest snapshot, and on every
+# push to main so a change to a template or query ships immediately.
+#
+# Required secret: DATABASE_URL (the Neon connection string).
+on:
+  schedule:
+    - cron: "30 7 * * *"        # after the 07:00 pipeline run
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SITE_URL: ${{ vars.SITE_URL || 'https://zohaiba365.github.io/Signal' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt jinja2
+
+      - name: Build site
+        run: python site/build.py
+
+      # The build refuses to run on an empty query, but a site that silently
+      # loses most of its pages would still deploy. This is the floor check.
+      - name: Sanity check output
+        run: |
+          pages=$(find site/dist -name index.html | wc -l)
+          echo "generated $pages pages"
+          if [ "$pages" -lt 100 ]; then
+            echo "::error::only $pages pages generated - refusing to deploy"
+            exit 1
+          fi
+          test -s site/dist/data/jobs.json || { echo "::error::search payload missing"; exit 1; }
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

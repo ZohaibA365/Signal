@@ -27,7 +27,7 @@ import re
 import shutil
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -38,8 +38,8 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / "storage"))
 sys.path.insert(0, str(HERE))
 
-from db import connect  # noqa: E402
 import queries as Q  # noqa: E402
+from db import connect  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("build")
@@ -169,7 +169,7 @@ def build(skip_pages: bool = False) -> None:
     fresh = data["FRESHNESS"][0]
     common = {
         "stats": stats, "freshness": fresh, "site_url": SITE_URL, "repo_url": REPO_URL,
-        "generated_at": datetime.now(timezone.utc).strftime("%d %b %Y"),
+        "generated_at": datetime.now(UTC).strftime("%d %b %Y"),
     }
 
     def render(template: str, out: Path, **ctx) -> None:
@@ -306,7 +306,7 @@ def build(skip_pages: bool = False) -> None:
     urls = ["/", "/search/", "/companies/", "/tech/", "/methodology/"]
     urls += [f"/companies/{c['slug']}/" for c in companies]
     urls += [f"/tech/{t['tech_slug']}/" for t in techs]
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     (DIST / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

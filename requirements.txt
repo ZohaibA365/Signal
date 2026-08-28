@@ -9,3 +9,6 @@ streamlit==1.62.0
 pandas==3.0.5
 psycopg2-binary==2.9.12
 python-dotenv==1.2.3
+
+# Static site generation (site/build.py)
+Jinja2==3.1.6
