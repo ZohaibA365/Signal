@@ -195,14 +195,20 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
                 {"department": dept, "roles": n}, strength=45,
             ))
 
-    # ---- tier 2: against comparable companies ------------------------------
+    # ---- tier 2: against the tracked baseline -------------------------------
+    # The baseline is every company in the corpus above a posting floor, not a
+    # curated peer set, so the sentences say "the companies I track" rather
+    # than "comparable companies". The distinction matters when the message
+    # goes to someone at that company: a ratio against a broad baseline is a
+    # weaker claim than a ratio against true peers, and describing it as the
+    # latter would be overclaiming.
     if peers.get("median_last_30d") and last30 >= 3:
         ratio = last30 / peers["median_last_30d"]
         if ratio >= 1.8 or ratio <= 0.55:
             comparison = f"{ratio:.1f}x" if ratio >= 1 else f"{1/ratio:.1f}x below"
             out.append(Insight(
                 "peer", "pace_vs_peers",
-                f"that is roughly {comparison} the pace of comparable companies I track",
+                f"that is roughly {comparison} the median pace across the companies I track",
                 {"company_last_30d": last30, "peer_median": peers["median_last_30d"]},
                 strength=80,
             ))
@@ -214,12 +220,16 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
     # they actually have is the single most damaging error available here, so
     # the comparison is only made in the positive direction, where the
     # evidence is a count that exists rather than one that does not.
-    if peers.get("stack_shares") and facts["roles"] >= 20:
+    if peers.get("stack_counts") and facts["roles"] >= 20:
         for slug, n in facts["stack"][:12]:
             if slug in UBIQUITOUS or n < 3:
                 continue
             own = n / facts["roles"]
-            peer = peers["stack_shares"].get(slug, 0.0)
+            # Remove this company from the baseline it is being measured
+            # against, or the comparison contains itself.
+            base_n = peers["stack_counts"].get(slug, 0.0) - n
+            base_total = peers["total_postings"] - facts["roles"]
+            peer = (base_n / base_total) if base_total > 0 and base_n > 0 else 0.0
             nm = market.get(slug, {}).get("name", slug)
             if _is_own_product(company, slug, nm):
                 continue
@@ -227,7 +237,7 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
                 out.append(Insight(
                     "peer", "stack_emphasis",
                     f"they mention {nm} in {round(own * 100)}% of their postings, "
-                    f"about {own / peer:.1f}x the rate of comparable companies I track",
+                    f"about {own / peer:.1f}x the rate across the companies I track",
                     {"tech": slug, "own_share": round(own, 3), "peer_share": round(peer, 3)},
                     strength=88,
                 ))
@@ -263,19 +273,27 @@ def peer_stats(cur, companies: list[str]) -> dict:
     if counts:
         stats["median_last_30d"] = counts[len(counts) // 2]
 
-    # Share of the peer set's postings mentioning each technology, which is
-    # what makes "2x the rate of comparable companies" a checkable claim.
+    # Raw counts rather than a finished share, so a company can be removed
+    # from its own baseline at comparison time. Leaving it in understates the
+    # ratio - Databricks against a baseline containing Databricks reads 9.6x
+    # where the correct figure is 16.2x - and more importantly it is not a
+    # comparison at all if one side is inside the other.
+    cur.execute("""
+        SELECT count(*)::numeric FROM raw_postings WHERE company_name = ANY(%(cos)s)
+    """, {"cos": companies})
+    stats["total_postings"] = float(cur.fetchone()[0] or 0)
+
     cur.execute("""
         WITH peer AS (
             SELECT r.source, r.job_id FROM raw_postings r
             WHERE r.company_name = ANY(%(cos)s)
-        ), total AS (SELECT count(*)::numeric n FROM peer)
-        SELECT pt.tech_slug, count(*)::numeric / (SELECT n FROM total)
+        )
+        SELECT pt.tech_slug, count(*)::numeric
         FROM peer p JOIN posting_technologies pt
           ON pt.source = p.source AND pt.job_id = p.job_id
         GROUP BY 1
     """, {"cos": companies})
-    stats["stack_shares"] = {s: float(share) for s, share in cur.fetchall()}
+    stats["stack_counts"] = {s: float(n) for s, n in cur.fetchall()}
     return stats
 
 
