@@ -37,6 +37,13 @@ WS_RE = re.compile(r"[ \t\r\f\v]+")
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": UA, "Accept": "application/json"})
+# The discovery sweep runs a dozen threads against a handful of hosts, and the
+# default pool of 10 per host silently discards and reopens connections under
+# that load. Sizing the pool to the sweep keeps it to one connection per
+# thread rather than a reconnect per request.
+for _scheme in ("http://", "https://"):
+    _session.mount(_scheme, requests.adapters.HTTPAdapter(
+        pool_connections=32, pool_maxsize=32))
 
 
 def request(method: str, url: str, **kw) -> requests.Response | None:

@@ -13,10 +13,10 @@ before anything that needs a registry entry.
 """
 from __future__ import annotations
 
-from . import ashby, greenhouse, lever, smartrecruiters, workable, workday
+from . import amazon, ashby, greenhouse, lever, smartrecruiters, workable, workday
 
 ADAPTERS = {m.NAME: m for m in
-            (greenhouse, lever, ashby, smartrecruiters, workable, workday)}
+            (greenhouse, lever, ashby, smartrecruiters, workable, workday, amazon)}
 
 # Systems whose coordinates are a single slug, so a sweep can guess them.
 GUESSABLE = ("greenhouse", "lever", "ashby", "smartrecruiters", "workable")

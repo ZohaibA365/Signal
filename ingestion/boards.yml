@@ -47,3 +47,10 @@ companies:
     ats: smartrecruiters
     slug: BoschGroup
     note: slug is case-sensitive and not derivable from the company name
+
+  Amazon:
+    ats: amazon
+    note: >
+      No third-party board, so without a bespoke adapter Amazon's postings can
+      only come from an aggregator - an unclickable link. Hires interns at a
+      scale that earns the exception.
