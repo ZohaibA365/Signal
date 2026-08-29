@@ -43,6 +43,19 @@ jobs:
       # day waits for it to wake. Measured at ~4 minutes cold against ~2
       # seconds warm - the default 6h job timeout is generous, but the step
       # gets an explicit one so a genuine hang is distinguishable from a wake.
+      # Confirms the secret arrived without ever printing it. A secret that
+      # exists but is empty, or is named differently in repository settings,
+      # looks identical to one that was never added - and GitHub masks the
+      # value, so the only safe signal is its shape.
+      - name: Check credential is present
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty. Check the secret exists under"
+            echo "::error::Settings -> Secrets and variables -> Actions, named exactly DATABASE_URL."
+            exit 1
+          fi
+          echo "DATABASE_URL present: ${#DATABASE_URL} characters, starts with ${DATABASE_URL%%:*}:"
+
       - name: Build site
         timeout-minutes: 15
         run: python site/build.py
