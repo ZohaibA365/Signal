@@ -171,6 +171,15 @@ def connect():
                             cursor_factory=RealDictCursor)
 
 
+# Results are written in batches rather than once at the end. A sweep of a few
+# hundred companies takes long enough that the warehouse - Neon, which is
+# serverless - closes an idle connection underneath it: a 375-company run
+# probed for twelve minutes and then lost every result to "SSL connection has
+# been closed unexpectedly". Saving as we go also makes an interrupted sweep
+# resumable, since anything already written is cached and skipped next time.
+SAVE_EVERY = 25
+
+
 def save(conn, entries: list[dict]) -> None:
     with conn, conn.cursor() as cur:
         for e in entries:
@@ -275,14 +284,36 @@ def main() -> None:
                 if skipped:
                     log.info("skipping %d already answered", len(skipped))
             log.info("probing %d companies", len(names))
+            done, hits = 0, []
             with ThreadPoolExecutor(max_workers=args.workers) as ex:
-                results = list(ex.map(resolve, names))
-            save(conn, results)
-            hits = [r for r in results if r["status"] == "resolved"]
+                pending, batch = ex.map(resolve, names), []
+                for r in pending:
+                    batch.append(r)
+                    done += 1
+                    if r["status"] == "resolved":
+                        hits.append(r)
+                    if len(batch) >= SAVE_EVERY:
+                        # A fresh connection per batch: the sweep outlives any
+                        # single one the warehouse is willing to hold open.
+                        conn = connect()
+                        try:
+                            save(conn, batch)
+                        finally:
+                            conn.close()
+                        log.info("  ... %d/%d probed, %d resolved so far",
+                                 done, len(names), len(hits))
+                        batch = []
+                if batch:
+                    conn = connect()
+                    try:
+                        save(conn, batch)
+                    finally:
+                        conn.close()
             for r in sorted(hits, key=lambda r: -(r["postings_seen"] or 0)):
                 log.info("  %-30s %-16s %-14s %5d",
                          r["company_name"], r["ats"], r["confidence"], r["postings_seen"])
-            log.info("resolved %d of %d", len(hits), len(results))
+            log.info("resolved %d of %d", len(hits), len(names))
+            conn = connect()
 
         if args.report or not (names or args.load_manual):
             report(conn)
