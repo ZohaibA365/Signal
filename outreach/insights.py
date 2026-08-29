@@ -131,7 +131,20 @@ def _is_own_product(company: str, tech_slug: str, tech_name: str) -> bool:
     return c and (c in ts or ts in c or c in tn or tn in c)
 
 
-def build_insights(company: str, facts: dict, peers: dict, market: dict) -> list[Insight]:
+# Below this many distinct days of collection, "last 30 days versus the 30
+# before" measures when we started collecting, not how a company is hiring.
+MIN_DAYS_FOR_TREND = 45
+
+
+def collection_days(cur) -> int:
+    """How many distinct days postings have actually been collected on."""
+    cur.execute("SELECT count(DISTINCT first_seen::date) FROM raw_postings")
+    row = cur.fetchone()
+    return (row[0] if not isinstance(row, dict) else list(row.values())[0]) or 0
+
+
+def build_insights(company: str, facts: dict, peers: dict, market: dict,
+                   days_collected: int = 0) -> list[Insight]:
     out: list[Insight] = []
     roles, last30, prior30 = facts["roles"], facts["last_30d"], facts["prior_30d"]
 
@@ -145,7 +158,17 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict) -> list
             strength=60 + min(share, 40),
         ))
 
-    if prior30 >= 3 and last30 >= 3:
+    # Month-over-month pace is gated on collection history, and the gate is
+    # not a nicety. Job boards delist filled roles, so a freshly collected
+    # corpus always holds far more recent postings than older ones: Google
+    # read as 81 in the last 30 days against 3 in the 30 before - "up 2600%" -
+    # and corpus-wide the same artifact shows as 1.9x. With three collection
+    # days behind it that number describes our start date, not their hiring.
+    #
+    # This insight is the one most likely to lead a message, which is exactly
+    # why it has to be right: it would be sent to someone who knows their own
+    # hiring numbers and would recognise it as false immediately.
+    if days_collected >= MIN_DAYS_FOR_TREND and prior30 >= 10 and last30 >= 10:
         change = _pct(last30, prior30)
         if abs(change) >= 40:
             direction = "up" if change > 0 else "down"
@@ -298,6 +321,10 @@ def main() -> None:
     cur = conn.cursor()
     market = load_market(cur)
     peers = peer_stats(cur, names)
+    days = collection_days(cur)
+    if days < MIN_DAYS_FOR_TREND:
+        print(f"  [{days} days of collection history - pace-change claims "
+              f"suppressed, need {MIN_DAYS_FOR_TREND}]")
 
     results = []
     for name in names:
@@ -305,7 +332,7 @@ def main() -> None:
         if not facts["roles"]:
             print(f"\n{'=' * 78}\n{name}\n  no postings stored - run ingestion/company_boards.py first")
             continue
-        ins = build_insights(name, facts, peers, market)
+        ins = build_insights(name, facts, peers, market, days)
         results.append({"company": name, "facts": {k: v for k, v in facts.items()
                                                    if k not in ("stack", "top_departments")},
                         "insights": [asdict(i) for i in ins],
