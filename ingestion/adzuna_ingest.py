@@ -61,6 +61,15 @@ SEARCH_TERMS = [
     "data analyst intern",
     "new grad data engineer",
     "entry level data engineer",
+    # Canadian student hiring is called co-op, not internship. Without these
+    # the Canadian feed returns almost no student roles: the corpus held 267
+    # Canadian postings and 2 intern-shaped titles, against 1,749 in the US,
+    # because the Canadian ingest had only ever been run with the mainframe
+    # profile's search terms.
+    "data engineer co-op",
+    "software engineer co-op",
+    "engineering co-op student",
+    "data analyst co-op",
 ]
 
 # Be polite to a free-tier API.

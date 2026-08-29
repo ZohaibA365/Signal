@@ -196,13 +196,13 @@ def build(skip_pages: bool = False) -> None:
 
     rows_out = []
     for r in search_rows:
-        pi, path = split_url(r["redirect_url"])
+        pi, path = split_url(r["link_url"])
         rows_out.append({
             "t": r["job_title"], "c": r["company_name"], "s": r["location_state"],
             "n": r["country"], "l": r["seniority"], "d": r["days_since_posted"],
             "w": int(r["salary_min_reported"]) if r["salary_min_reported"] else None,
             "h": pi, "u": path, "f": r["fit_score"], "e": r["eligibility"],
-            "p": r["sponsorship_status"],
+            "p": r["sponsorship_status"], "r": 1 if r["is_remote"] else 0,
             "k": (r["techs"] or "").split(",") if r["techs"] else [],
         })
     payload = {"prefixes": prefixes, "rows": rows_out}

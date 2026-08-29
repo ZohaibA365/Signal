@@ -122,6 +122,25 @@ select
     description_raw,
     category,
     redirect_url,
+
+    /*
+      Where "Apply" actually sends someone, and whether it can be trusted.
+
+      Adzuna supplies 90% of this corpus and its redirect_url is a
+      country-gated adzuna.com link: opened from outside the posting's own
+      country it shows "not available in your region", and it 403s to
+      anything that is not a browser, so it cannot be resolved to the real
+      posting either. Adzuna's API never exposes the employer's own URL, so
+      these are unfixable rather than merely unfixed.
+
+      A career-board posting carries the employer's own URL by construction.
+      Only those are linkable, so only those reach the job list; the rest
+      still count toward market statistics, where no link is involved.
+    */
+    case when source = 'company_board' then redirect_url end   as link_url,
+    case when source = 'company_board' then 'direct'
+         else 'aggregator' end                                 as link_tier,
+
     search_term,
     ingested_at,
     first_seen,

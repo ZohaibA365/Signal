@@ -88,7 +88,7 @@ GROUP BY 1, 2, 3, 4
 
 COMPANY_ROLES = """
 SELECT company_name, job_title, location_state, country, seniority,
-       days_since_posted, redirect_url
+       days_since_posted, link_url AS redirect_url
 FROM ranked_opportunities
 WHERE company_name IN (
     SELECT company_name FROM dim_company WHERE total_postings >= 5
@@ -134,16 +134,32 @@ ORDER BY tech_slug, rank
 SEARCH_ROWS = """
 SELECT
     q.job_id, q.company_name, q.job_title, q.location_state, q.country,
-    q.seniority, q.days_since_posted, q.salary_min_reported, q.redirect_url,
+    q.seniority, q.days_since_posted, q.salary_min_reported, q.link_url,
     q.fit_score, q.eligibility, q.sponsorship_status, q.sponsor_filings,
+    -- Remote is not a state, but it is how a lot of these roles are actually
+    -- located, and a state filter with no remote option hides them all.
+    (q.location_raw ILIKE '%remote%') AS is_remote,
     string_agg(DISTINCT pt.tech_slug, ',') AS techs
 FROM apply_queue q
 LEFT JOIN posting_technologies pt
        ON pt.source = q.source AND pt.job_id = q.job_id
-WHERE q.days_since_posted <= 60
+-- Only postings whose link actually works. An Adzuna redirect is
+-- country-gated and cannot be resolved to the employer's posting, so
+-- publishing one guarantees a dead click for anyone outside its country.
+--
+-- No 60-day staleness cutoff here, unlike the aggregator feed. That rule
+-- exists because an old Adzuna posting has probably been filled and nobody
+-- took it down. A board posting is different: it was read off the employer's
+-- own live board during this run, so its presence IS the freshness signal.
+-- Applying the aggregator rule to it discarded 873 of 1,768 open roles.
+-- The wide bound below only excludes obviously bad dates.
+WHERE q.link_tier = 'direct'
+  AND q.link_url IS NOT NULL
+  AND (q.days_since_posted IS NULL OR q.days_since_posted <= 400)
 GROUP BY q.job_id, q.company_name, q.job_title, q.location_state, q.country,
-         q.seniority, q.days_since_posted, q.salary_min_reported, q.redirect_url,
-         q.fit_score, q.eligibility, q.sponsorship_status, q.sponsor_filings
+         q.seniority, q.days_since_posted, q.salary_min_reported, q.link_url,
+         q.fit_score, q.eligibility, q.sponsorship_status, q.sponsor_filings,
+         q.location_raw
 ORDER BY q.days_since_posted
 """
 

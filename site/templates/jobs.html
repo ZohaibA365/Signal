@@ -18,8 +18,16 @@
       <option value="verified">Employer has sponsored</option>
       <option value="open">Not citizenship-restricted</option>
     </select>
+    <select id="state" aria-label="State or province">
+      <option value="">Any location</option>
+    </select>
     <input id="salary" type="number" placeholder="Min salary" min="0" step="10000" style="width:130px" aria-label="Minimum stated salary">
   </div>
+
+  <!-- Chosen states appear here as removable chips. Several can be active at
+       once and they combine as OR, because "California or New York" is the
+       question people actually have. -->
+  <div class="picked" id="picked" hidden></div>
 
   <div class="chips" id="chips">
     <button class="chip" data-preset="intern" aria-pressed="false">Internships</button>
@@ -42,6 +50,13 @@
       <a href="{{ rel }}market/">the market index</a> work without it.
     </div>
   </noscript>
+  <p class="note">
+    Every role here links straight to the employer's own careers page, and each row
+    names the domain it will open. Roles that could only be linked through an
+    aggregator are not listed: those links are restricted by country and break for
+    anyone outside the posting's own, so they are counted in the
+    <a href="{{ rel }}market/">market index</a> but never shown as something to click.
+  </p>
   <p class="note">
     Salary shows only where the employer published it — roughly 99% of figures in the
     source are estimates and are excluded. Visa labels come from

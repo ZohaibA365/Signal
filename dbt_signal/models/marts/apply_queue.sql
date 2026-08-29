@@ -46,6 +46,8 @@ joined as (
         o.locations_posted,
         o.salary_min_reported,
         o.redirect_url,
+        o.link_url,
+        o.link_tier,
         o.description_raw,
 
         e.eligibility,

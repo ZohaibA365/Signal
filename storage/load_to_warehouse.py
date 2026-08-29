@@ -25,11 +25,11 @@ import sys
 from datetime import UTC, datetime
 
 import boto3
-import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from db import connect  # noqa: E402
 from location import clean_department, parse_location  # noqa: E402
 
 load_dotenv()
@@ -212,11 +212,12 @@ def main() -> None:
         log.info("DRY RUN - nothing written")
         return
 
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST"), port=os.getenv("POSTGRES_PORT"),
-        dbname=os.getenv("POSTGRES_DB"), user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
+    # Use the shared connection rather than the POSTGRES_* variables directly.
+    # Hardcoding them here meant a load silently went to the local container
+    # while dbt and the site read the hosted warehouse, so ingestion appeared
+    # to succeed - "6,957 new, 31,221 total" - while the published site kept
+    # serving the old numbers.
+    conn = connect()
     try:
         with conn, conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM raw_postings")

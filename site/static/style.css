@@ -180,3 +180,18 @@ footer .wrap{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
   .jrow{grid-template-columns:1fr}
   .right{justify-content:flex-start}
 }
+
+/* The employer domain an Apply click lands on. Every job in the list links to
+   a company's own board, and naming the host is what lets a reader verify
+   that rather than trust it. */
+.m .host { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* Selected states. Chips rather than a multi-select box: several locations at
+   once is the common case, and a native multiple-select is unusable on a
+   phone, which is where most of these links get opened. */
+.picked{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.picked button{display:inline-flex;align-items:center;gap:6px;background:var(--bg-2);
+  border:1px solid var(--line);color:var(--fg-1);border-radius:99px;
+  padding:3px 8px 3px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+.picked button:hover{border-color:var(--accent);color:var(--accent)}
+.picked button span{font-size:14px;line-height:1;opacity:.6}
