@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://signal-jobs.dev/sitemap.xml

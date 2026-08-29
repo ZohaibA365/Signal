@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find a data or AI job — Signal</title>
+<meta name="description" content="Search 8,584 US and Canadian data and AI roles by skill, level, location and verified visa sponsorship.">
+<link rel="canonical" href="https://signal-jobs.dev/search/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Find a data or AI job — Signal">
+<meta property="og:description" content="Search 8,584 US and Canadian data and AI roles by skill, level, location and verified visa sponsorship.">
+<meta property="og:url" content="https://signal-jobs.dev/search/">
+<meta property="og:site_name" content="Signal">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap inner">
+    <a class="brand" href="../"><b>Signal</b><span>Market Index</span></a>
+    <nav>
+      <a href="../">Index</a>
+      <a href="../search/" aria-current="page">Find a job</a>
+      <a href="../companies/">Companies</a>
+      <a href="../tech/">Technologies</a>
+      <a href="../methodology/">Method</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+
+<h1>Find a job</h1>
+<p class="standfirst">
+  8,584 roles from the last 60 days, filtered in your browser.
+  No account, no tracking, and the whole dataset is already loaded — so results
+  update as you type.
+</p>
+
+<div class="filters">
+  <div>
+    <label for="q">Role or company</label>
+    <input id="q" type="search" placeholder="data engineer" autocomplete="off">
+  </div>
+  <div>
+    <label for="skills">Your skills</label>
+    <input id="skills" type="search" placeholder="python, dbt, spark" autocomplete="off">
+  </div>
+  <div>
+    <label for="country">Country</label>
+    <select id="country"><option value="">Any</option><option value="us">United States</option><option value="ca">Canada</option></select>
+  </div>
+  <div>
+    <label for="seniority">Level</label>
+    <select id="seniority"><option value="">Any</option><option value="intern">Intern</option><option value="entry">Entry</option><option value="mid">Mid</option><option value="senior">Senior</option></select>
+  </div>
+  <div>
+    <label for="sponsor">Visa</label>
+    <select id="sponsor">
+      <option value="">Any</option>
+      <option value="verified">Employer has sponsored</option>
+      <option value="open">Not citizenship-restricted</option>
+    </select>
+  </div>
+  <div>
+    <label for="salary">Min salary (stated)</label>
+    <input id="salary" type="number" placeholder="80000" min="0" step="10000">
+  </div>
+</div>
+
+<noscript>
+  <div class="noscript">
+    Search needs JavaScript, because the filtering runs in your browser rather than
+    on a server. The <a href="../">index</a>, <a href="../companies/">company
+    profiles</a> and <a href="../tech/">technology pages</a> all work without it.
+  </div>
+</noscript>
+
+<p id="count" class="num"></p>
+<div id="results"></div>
+
+<p class="note">
+  Salary is shown only where the employer stated it. Roughly 99% of salary figures in
+  the source are model estimates, and those are excluded rather than displayed as fact.
+  Visa labels come from <a href="../methodology/">Department of Labor filing records</a>,
+  not from the job text.
+</p>
+
+<script src="../search.js" defer></script>
+
+</main>
+
+<footer>
+  <div class="wrap inner">
+    <span>Signal — an index of the US data and AI job market.
+      24,264 postings, 4,649 employers.</span>
+    <span class="num">Updated 29 Aug 2026 · <a href="https://github.com/ZohaibA365/Signal">source</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
