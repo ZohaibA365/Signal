@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block body %}<div class="wrap page">
+
+<h1>Market index</h1>
+<p class="sub">
+  What US employers are hiring for, measured daily across {{ stats.technologies }} technologies.
+  Counts come from the job board's market-wide index, so they do not depend on which
+  postings Signal collected.
+</p>
+
+<div class="kpis">
+  <div class="kpi"><b>{{ stats.postings | fmt }}</b><span>Postings indexed</span></div>
+  <div class="kpi"><b>{{ stats.companies | fmt }}</b><span>Employers</span></div>
+  <div class="kpi"><b>{{ stats.technologies }}</b><span>Technologies tracked</span></div>
+  <div class="kpi good"><b>{{ stats.verified_sponsors | fmt }}</b><span>Verified sponsors</span></div>
+</div>
+
+{% for cat, rows in demand_by_category %}
+<h2>{{ cat | title }}</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Technology</th><th>Share of category</th><th class="r">Openings</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="{{ rel }}tech/{{ r.tech_slug }}/">{{ r.tech_name }}</a></td>
+      <td style="width:46%"><span class="meter"><i class="{{ 'dim' if loop.index0 > 2 }}" style="width:{{ r.bar }}%"></i></span></td>
+      <td class="r">{{ r.openings | fmt }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endfor %}
+
+<h2>What each skill pays</h2>
+<p class="sub">Share of postings landing in the top salary band.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Technology</th><th class="r">In top band</th><th class="r">Sample</th></tr></thead>
+  <tbody>
+  {% for s in salary %}
+    <tr><td><a href="{{ rel }}tech/{{ s.tech_slug }}/">{{ s.tech_name }}</a></td>
+      <td class="r">{{ s.pct_top_band }}%</td><td class="r">{{ s.total_postings | fmt }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note warn">
+  Measured as share-in-top-band rather than median. The source histogram has seven buckets
+  and its highest is open-ended, absorbing 62% of postings, so medians collapse onto the
+  same figure for nearly every technology and cannot separate them.
+</p>
+
+<h2>Tools that travel together</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Mentions</th><th>Also mentions</th><th class="r">Share</th><th class="r">Lift</th></tr></thead>
+  <tbody>
+  {% for p in pairs %}
+    <tr>
+      <td><a href="{{ rel }}tech/{{ p.tech_slug }}/">{{ p.tech_name }}</a></td>
+      <td><a href="{{ rel }}tech/{{ p.co_tech_slug }}/">{{ p.co_tech_name }}</a></td>
+      <td class="r">{{ p.pct_of_tech_postings }}%</td>
+      <td class="r">{{ p.lift | round | int }}&times;</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note"><b>Lift</b> is how much more often a pair appears together than chance predicts.</p>
+
+</div>{% endblock %}

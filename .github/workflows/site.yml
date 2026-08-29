@@ -37,56 +37,53 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: pip install -r requirements.txt jinja2
+      # requirements-dev is what the CI workflow installs and is proven to
+      # work on this runner; requirements.txt is the slimmer app-only file.
+      # Using the proven one removes a variable.
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
 
-      # Neon's free tier suspends compute when idle, so the first query of the
-      # day waits for it to wake. Measured at ~4 minutes cold against ~2
-      # seconds warm - the default 6h job timeout is generous, but the step
-      # gets an explicit one so a genuine hang is distinguishable from a wake.
-      # Confirms the secret arrived without ever printing it. A secret that
-      # exists but is empty, or is named differently in repository settings,
-      # looks identical to one that was never added - and GitHub masks the
-      # value, so the only safe signal is its shape.
+      # The build is split into narrowly named steps on purpose. Step logs
+      # require admin rights to download, but step NAMES and outcomes are
+      # public - so if this fails, the name of the failing step identifies the
+      # cause without anyone having to read a log.
+      - name: Check imports resolve
+        run: |
+          python -c "import jinja2, psycopg2, sys; print(sys.version); print(jinja2.__version__)"
+
+      - name: Check project modules import
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'storage'); sys.path.insert(0, 'site')
+          import db, queries
+          print('project modules OK')
+          "
+
       - name: Check credential is present
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL is empty. Check the secret exists under"
-            echo "::error::Settings -> Secrets and variables -> Actions, named exactly DATABASE_URL."
+            echo "::error::DATABASE_URL is empty."
             exit 1
           fi
-          echo "DATABASE_URL present: ${#DATABASE_URL} characters, starts with ${DATABASE_URL%%:*}:"
+          echo "DATABASE_URL present: ${#DATABASE_URL} chars"
 
-      # Output is teed to a file and, on failure, written to the run summary.
-      # Step logs need admin rights to download via the API, so a failure that
-      # only appears there is effectively invisible to anyone debugging from
-      # outside the repo. The summary page is public and copyable.
+      - name: Check warehouse reachable
+        timeout-minutes: 10
+        run: |
+          python -c "
+          import os, psycopg2
+          c = psycopg2.connect(os.environ['DATABASE_URL'])
+          cur = c.cursor(); cur.execute('select count(*) from raw_postings')
+          print('warehouse OK, rows:', cur.fetchone()[0])
+          "
+
       - name: Build site
         timeout-minutes: 15
         run: |
           set -o pipefail
           python -u site/build.py 2>&1 | tee /tmp/build.log
 
-      - name: Report failure to run summary
-        if: failure()
-        run: |
-          {
-            echo "## Site build failed"
-            echo
-            echo '```'
-            tail -40 /tmp/build.log 2>/dev/null || echo "(no output captured)"
-            echo '```'
-            echo
-            echo "| check | value |"
-            echo "| --- | --- |"
-            echo "| python | $(python --version 2>&1) |"
-            echo "| DATABASE_URL length | ${#DATABASE_URL} |"
-            echo "| jinja2 | $(python -c 'import jinja2;print(jinja2.__version__)' 2>&1) |"
-            echo "| psycopg2 | $(python -c 'import psycopg2;print(psycopg2.__version__)' 2>&1) |"
-            echo "| files in site/ | $(ls site | tr '\n' ' ') |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # The build refuses to run on an empty query, but a site that silently
-      # loses most of its pages would still deploy. This is the floor check.
       - name: Sanity check output
         run: |
           pages=$(find site/dist -name index.html | wc -l)
@@ -96,6 +93,21 @@ jobs:
             exit 1
           fi
           test -s site/dist/data/jobs.json || { echo "::error::search payload missing"; exit 1; }
+
+      - name: Report failure to run summary
+        if: failure()
+        run: |
+          {
+            echo "## Site build failed"
+            echo '```'
+            tail -40 /tmp/build.log 2>/dev/null || echo "(build produced no output)"
+            echo '```'
+            echo "| check | value |"
+            echo "| --- | --- |"
+            echo "| python | $(python --version 2>&1) |"
+            echo "| DATABASE_URL length | ${#DATABASE_URL} |"
+            echo "| site/ contents | $(ls site 2>&1 | tr '\n' ' ') |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

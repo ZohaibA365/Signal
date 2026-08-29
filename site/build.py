@@ -31,7 +31,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from markupsafe import Markup
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -69,41 +68,16 @@ def fetch_all(cur) -> dict:
     return data
 
 
-def league_table(rows, label_key, value_key, link=None, limit=8) -> Markup:
-    """
-    Server-rendered bar table.
-
-    Bars are inline HTML rather than a charting library: they paint with the
-    document, work with JavaScript disabled, and add no CDN dependency that can
-    break or slow the page.
-    """
-    rows = rows[:limit]
+def with_bars(rows: list[dict], key: str, limit: int | None = None) -> list[dict]:
+    """Attach a 0-100 bar width relative to the largest value in the group."""
+    rows = rows[:limit] if limit else rows
     if not rows:
-        return Markup("")
-    # Postgres NUMERIC comes back as Decimal, which will not mix with float in
-    # arithmetic. Coerce once here rather than at every call site.
-    def num(r):
-        v = r[value_key]
-        return float(v) if v is not None else 0.0
-
-    top = max(num(r) for r in rows) or 1.0
-    out = ['<div class="league">']
-    for i, r in enumerate(rows):
-        val = num(r)
-        pct = 100.0 * val / top
-        name = r[label_key]
-        if link:
-            name = f'<a href="{link(r)}">{name}</a>'
-        shown = f"{int(val):,}" if float(val).is_integer() and val > 100 else f"{val:g}%"
-        muted = " muted" if i >= 3 else ""
-        out.append(
-            f'<div class="row"><span class="name">{name}</span>'
-            f'<span class="track-cell"><span class="track">'
-            f'<span class="fill{muted}" style="width:{pct:.1f}%"></span></span></span>'
-            f'<span class="fig">{shown}</span></div>'
-        )
-    out.append("</div>")
-    return Markup("".join(out))
+        return []
+    # Postgres NUMERIC arrives as Decimal, which will not mix with float.
+    top = max(float(r[key] or 0) for r in rows) or 1.0
+    for r in rows:
+        r["bar"] = round(100.0 * float(r[key] or 0) / top, 1)
+    return rows
 
 
 def build(skip_pages: bool = False) -> None:
@@ -126,6 +100,11 @@ def build(skip_pages: bool = False) -> None:
     data = fetch_all(cur)
     conn.close()
 
+    # Clear the output first. Without this, pages removed from the site linger
+    # in dist and are published anyway - the old /search/ and /methodology/
+    # routes survived a restructure and would have shipped as dead pages.
+    if DIST.exists():
+        shutil.rmtree(DIST)
     DIST.mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / "static" / "style.css", DIST / "style.css")
     if (HERE / "static" / "search.js").exists():
@@ -188,41 +167,29 @@ def build(skip_pages: bool = False) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(env.get_template(template).render(**common, **ctx))
 
-    # ---- homepage --------------------------------------------------------
+    # ---- homepage: the job search itself. This is a job board first. -----
     demand = data["DEMAND_BY_CATEGORY"]
-    warehouses = [r for r in demand if r["category"] == "warehouse"]
-    wh_share = round(sum(r["pct_of_category"] for r in warehouses[:2]))
     salary = data["SALARY_LEADERS"]
-    sponsors = sorted(
-        (r for r in data["COMPANIES"] if r["total_filings"]),
-        key=lambda r: -r["total_filings"])[:8]
-    for s in sponsors:
-        s["slug"] = slugify(s["company_name"])
 
-    render("home.html", DIST / "index.html", nav="home", rel="",
-           canonical="/",
-           page_title="Signal — the US data & AI job market index",
-           page_description=(f"Daily index of {stats['postings']:,} US data and AI job "
-                             f"postings: demand by technology, what each skill pays, and "
-                             f"which employers verifiably sponsor visas."),
-           warehouse_table=league_table(warehouses, "tech_name", "openings",
-                                        link=lambda r: f"tech/{r['tech_slug']}/"),
-           warehouse_share=wh_share,
-           salary_table=league_table(salary, "tech_name", "pct_top_band",
-                                     link=lambda r: f"tech/{r['tech_slug']}/"),
-           salary_leaders_names=", ".join(r["tech_name"] for r in salary[:3]),
-           stack_pairs=data["STACK_PAIRS"][:6],
-           top_sponsors=sponsors,
-           search_count=len(rows_out),
-           company_count=len(data["COMPANIES"]))
-
-    # ---- search ----------------------------------------------------------
-    render("search.html", DIST / "search" / "index.html", nav="search", rel="../",
-           canonical="/search/",
-           page_title="Find a data or AI job — Signal",
-           page_description=(f"Search {len(rows_out):,} US and Canadian data and AI roles by "
-                             f"skill, level, location and verified visa sponsorship."),
+    render("jobs.html", DIST / "index.html", nav="jobs", rel="", canonical="/",
+           page_title="Signal — data & AI jobs in the US and Canada",
+           page_description=(f"Search {len(rows_out):,} data and AI roles by skill, level, "
+                             f"location and verified visa sponsorship. Updated daily."),
            search_count=len(rows_out))
+
+    # ---- market index: the findings, one click away ----------------------
+    by_cat: dict[str, list] = {}
+    for r in demand:
+        by_cat.setdefault(r["category"], []).append(r)
+    ordered = sorted(by_cat.items(), key=lambda kv: -sum(x["openings"] for x in kv[1]))
+
+    render("market.html", DIST / "market" / "index.html", nav="market", rel="../",
+           canonical="/market/",
+           page_title="US data & AI market index — demand, pay and stacks | Signal",
+           page_description=(f"Daily demand across {stats['technologies']} technologies, "
+                             f"what each skill pays, and which tools appear together."),
+           demand_by_category=[(c, with_bars(rows, "openings", 10)) for c, rows in ordered],
+           salary=salary[:15], pairs=data["STACK_PAIRS"][:12])
 
     # ---- company pages ---------------------------------------------------
     tech_by_company: dict[str, list] = {}
@@ -245,10 +212,7 @@ def build(skip_pages: bool = False) -> None:
                    f"{c['company_name']}: {c['total_postings']:,} tracked data and AI roles, "
                    f"{c['postings_last_30d']} in the last 30 days"
                    + (f", {c['total_filings']:,} H-1B filings." if c["total_filings"] else ".")),
-               c=c, techs=techs, roles=roles,
-               vocab_size=len({r["tech_slug"] for r in data["COMPANY_TECH"]}),
-               tech_table=league_table(techs, "tech_name", "mentions",
-                                       link=lambda r: f"../../tech/{r['tech_slug']}/", limit=10))
+               c=c, techs=with_bars(techs, "mentions"), roles=roles)
 
     render("list.html", DIST / "companies" / "index.html", nav="companies", rel="../",
            canonical="/companies/",
@@ -287,9 +251,8 @@ def build(skip_pages: bool = False) -> None:
                    if t["openings"] else
                    f"{t['tech_name']} in the US data and AI job market: "
                    f"{t['postings_mentioning']:,} postings and the tools it appears with."),
-               t=t, employers=emp, category_size=cat_sizes[t["category"]],
-               pairs=pairs_by_tech.get(t["tech_slug"], [])[:8],
-               employer_table=league_table(emp, "company_name", "postings", limit=8))
+               t=t, employers=emp[:8], category_size=cat_sizes[t["category"]],
+               pairs=pairs_by_tech.get(t["tech_slug"], [])[:8])
 
     render("list.html", DIST / "tech" / "index.html", nav="tech", rel="../",
            canonical="/tech/",
@@ -307,15 +270,15 @@ def build(skip_pages: bool = False) -> None:
                  for t in techs])
 
     # ---- methodology -----------------------------------------------------
-    render("methodology.html", DIST / "methodology" / "index.html",
-           nav="methodology", rel="../", canonical="/methodology/",
+    render("method.html", DIST / "method" / "index.html",
+           nav="method", rel="../", canonical="/method/",
            page_title="How Signal is built — methodology | Signal",
            page_description=("The pipeline behind Signal, what the data can and cannot "
                              "support, and the errors caught before publishing."),
            search_count=len(rows_out), company_count=len(companies))
 
     # ---- sitemap / robots -------------------------------------------------
-    urls = ["/", "/search/", "/companies/", "/tech/", "/methodology/"]
+    urls = ["/", "/market/", "/companies/", "/tech/", "/method/"]
     urls += [f"/companies/{c['slug']}/" for c in companies]
     urls += [f"/tech/{t['tech_slug']}/" for t in techs]
     today = datetime.now(UTC).date()

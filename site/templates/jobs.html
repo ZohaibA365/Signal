@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="wrap searchbar">
+  <h1>Data &amp; AI jobs <span>— US and Canada, updated daily</span></h1>
+
+  <div class="qrow">
+    <input id="q" type="search" placeholder="Search role or company" autocomplete="off" aria-label="Search role or company">
+    <input id="skills" type="search" placeholder="Skills: python, dbt, spark" autocomplete="off" aria-label="Skills">
+    <select id="country" aria-label="Country">
+      <option value="">Anywhere</option><option value="us">United States</option><option value="ca">Canada</option>
+    </select>
+    <select id="seniority" aria-label="Level">
+      <option value="">Any level</option><option value="intern">Intern</option>
+      <option value="entry">Entry</option><option value="mid">Mid</option><option value="senior">Senior</option>
+    </select>
+    <select id="sponsor" aria-label="Visa">
+      <option value="">Any visa status</option>
+      <option value="verified">Employer has sponsored</option>
+      <option value="open">Not citizenship-restricted</option>
+    </select>
+    <input id="salary" type="number" placeholder="Min salary" min="0" step="10000" style="width:130px" aria-label="Minimum stated salary">
+  </div>
+
+  <div class="chips" id="chips">
+    <button class="chip" data-preset="intern" aria-pressed="false">Internships</button>
+    <button class="chip" data-preset="sponsor" aria-pressed="false">Sponsors visas</button>
+    <button class="chip" data-preset="de" aria-pressed="false">Data engineering</button>
+    <button class="chip" data-preset="fresh" aria-pressed="false">Posted this week</button>
+    <button class="chip" data-preset="paid" aria-pressed="false">Salary published</button>
+    <button class="chip" data-preset="canada" aria-pressed="false">Canada</button>
+  </div>
+
+  <div class="summary" id="summary"><span>Loading roles…</span></div>
+</div>
+
+<div class="wrap">
+  <div class="rows" id="results"></div>
+  <noscript>
+    <div class="empty">
+      Search runs in your browser, so it needs JavaScript.
+      <a href="{{ rel }}companies/">Company profiles</a> and
+      <a href="{{ rel }}market/">the market index</a> work without it.
+    </div>
+  </noscript>
+  <p class="note">
+    Salary shows only where the employer published it — roughly 99% of figures in the
+    source are estimates and are excluded. Visa labels come from
+    <a href="{{ rel }}method/">Department of Labor filings</a>, not from job text.
+  </p>
+</div>
+
+<script src="{{ rel }}search.js" defer></script>
+{% endblock %}

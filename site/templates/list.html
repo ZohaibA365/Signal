@@ -1,18 +1,16 @@
 {% extends "base.html" %}
-{% block content %}
+{% block body %}<div class="wrap page">
 <h1>{{ heading }}</h1>
-<p class="standfirst">{{ blurb }}</p>
+<p class="sub">{{ blurb }}</p>
 <div class="scroll">
-  <table>
-    <thead><tr>{% for h in headers %}<th{{ ' class="r"' | safe if loop.index0 > 0 }}>{{ h }}</th>{% endfor %}</tr></thead>
-    <tbody>
-    {% for row in rows %}
-      <tr>
-        <td><a href="{{ row.href }}">{{ row.label }}</a></td>
-        {% for v in row.cells %}<td class="r">{{ v }}</td>{% endfor %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+<table>
+  <thead><tr>{% for h in headers %}<th{% if not loop.first %} class="r"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr><td><a href="{{ row.href }}">{{ row.label }}</a></td>
+      {% for v in row.cells %}<td class="r">{{ v }}</td>{% endfor %}</tr>
+  {% endfor %}
+  </tbody>
+</table>
 </div>
-{% endblock %}
+</div>{% endblock %}

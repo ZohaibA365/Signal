@@ -1,55 +1,49 @@
 {% extends "base.html" %}
-{% block content %}
+{% block body %}<div class="wrap page">
 
 <h1>{{ t.tech_name }}</h1>
-<p class="standfirst">
-  {% if t.openings %}
-    <strong>{{ t.openings | fmt }}</strong> current US openings mention {{ t.tech_name }} —
-    rank {{ t.category_rank }} of {{ category_size }} in {{ t.category }},
-    {{ t.pct_of_category }}% of that category's demand.
-  {% else %}
-    {{ t.tech_name }} appears in <strong>{{ t.postings_mentioning | fmt }}</strong> postings
-    in the collected corpus. It is not one of the technologies snapshotted daily, so there
-    is no market-wide openings count for it.
-  {% endif %}
+<p class="sub">
+  {% if t.openings %}{{ t.openings | fmt }} current US openings mention {{ t.tech_name }} —
+  rank {{ t.category_rank }} of {{ category_size }} in {{ t.category }}.
+  {% else %}Appears in {{ t.postings_mentioning | fmt }} collected postings. Not one of the
+  technologies snapshotted daily, so there is no market-wide openings count.{% endif %}
 </p>
 
-<div class="stats">
-  {% if t.openings %}<div class="stat"><b>{{ t.openings | fmt }}</b><span>Openings</span></div>
-  <div class="stat"><b>#{{ t.category_rank }}</b><span>In {{ t.category }}</span></div>{% else %}
-  <div class="stat"><b>{{ t.category }}</b><span>Category</span></div>{% endif %}
-  {% if t.pct_top_band %}<div class="stat"><b>{{ t.pct_top_band }}%</b><span>In top salary band</span></div>{% endif %}
-  <div class="stat"><b>{{ t.postings_mentioning | fmt }}</b><span>Postings in our corpus</span></div>
+<div class="kpis">
+  {% if t.openings %}
+  <div class="kpi"><b>{{ t.openings | fmt }}</b><span>Openings</span></div>
+  <div class="kpi"><b>#{{ t.category_rank }}</b><span>In {{ t.category }}</span></div>
+  {% else %}<div class="kpi"><b>{{ t.category }}</b><span>Category</span></div>{% endif %}
+  {% if t.pct_top_band %}<div class="kpi good"><b>{{ t.pct_top_band }}%</b><span>In top salary band</span></div>{% endif %}
+  <div class="kpi"><b>{{ t.postings_mentioning | fmt }}</b><span>In our corpus</span></div>
 </div>
 
 {% if employers %}
-<section>
-  <h2>Who hires for it</h2>
-  {{ employer_table }}
-</section>
+<h2>Who hires for it</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Employer</th><th class="r">Postings</th></tr></thead>
+  <tbody>
+  {% for e in employers %}<tr><td>{{ e.company_name }}</td><td class="r">{{ e.postings | fmt }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
 {% endif %}
 
 {% if pairs %}
-<section>
-  <h2>What it travels with</h2>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>Also mentioned</th><th class="r">Share of {{ t.tech_name }} postings</th><th class="r">Lift</th></tr></thead>
-      <tbody>
-      {% for p in pairs %}
-        <tr>
-          <td><a href="{{ rel }}tech/{{ p.co_tech_slug }}/">{{ p.co_tech_name }}</a></td>
-          <td class="r">{{ p.pct_of_tech_postings }}%</td>
-          <td class="r">{{ p.lift | round | int }}&times;</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <p class="note">Lift is how much more often the pair appears together than chance predicts.</p>
-</section>
+<h2>What it travels with</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Also mentioned</th><th class="r">Share</th><th class="r">Lift</th></tr></thead>
+  <tbody>
+  {% for p in pairs %}
+    <tr><td><a href="{{ rel }}tech/{{ p.co_tech_slug }}/">{{ p.co_tech_name }}</a></td>
+      <td class="r">{{ p.pct_of_tech_postings }}%</td><td class="r">{{ p.lift | round | int }}&times;</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
 {% endif %}
 
-<p class="note"><a href="{{ rel }}tech/">← All technologies</a> ·
-  <a href="{{ rel }}search/">Find {{ t.tech_name }} roles →</a></p>
-{% endblock %}
+<p class="note"><a href="{{ rel }}tech/">← All technologies</a> · <a href="{{ rel }}">Find {{ t.tech_name }} roles →</a></p>
+</div>{% endblock %}
