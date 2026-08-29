@@ -1,0 +1,49 @@
+# Hand-resolved career boards.
+#
+# These are the entries that automation cannot produce. Slug-guessing against
+# the startup boards resolved 27 of the 120 largest employers; the rest are on
+# systems whose coordinates are arbitrary strings that must be read off a real
+# careers URL:
+#
+#   Capital One  ->  capitalone.wd12 / Capital_One    (not wd1, not "Careers")
+#   Bosch        ->  BoschGroup                       (not "bosch")
+#
+# Every entry here is verified against the live board by
+# `board_discovery.py --load-manual` before it is stored, so a wrong tenant or
+# site path fails loudly instead of silently attaching an empty board to a
+# company.
+#
+# `company` keys must match company_name in raw_postings exactly, or the
+# resolved board will not join to the postings it is meant to replace.
+
+companies:
+
+  Capital One:
+    ats: workday
+    tenant: capitalone
+    host: wd12
+    site: Capital_One
+    note: 1,852 postings incl. ~1,100 internships; 871 broken Adzuna rows replaced
+
+  PwC:
+    ats: workday
+    tenant: pwc
+    host: wd3
+    site: US_Experienced_Careers
+
+  Booz Allen Hamilton:
+    ats: workday
+    tenant: bah
+    host: wd1
+    site: BAH_Jobs
+
+  General Motors:
+    ats: workday
+    tenant: generalmotors
+    host: wd5
+    site: Careers_GM
+
+  Bosch:
+    ats: smartrecruiters
+    slug: BoschGroup
+    note: slug is case-sensitive and not derivable from the company name

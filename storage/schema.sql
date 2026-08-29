@@ -202,3 +202,40 @@ CREATE TABLE IF NOT EXISTS posting_alerts (
     alerted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (source, job_id)
 );
+
+-- Which applicant-tracking system each company's board lives on.
+--
+-- This exists because board coordinates cannot be guessed. Slug-guessing
+-- against Greenhouse/Lever/Ashby resolved only 5 of the 60 largest employers
+-- in the corpus - the rest are on Workday, whose tenant host and site path
+-- are both arbitrary (Capital One is capitalone.wd12 with site Capital_One,
+-- not wd1, not Careers). SmartRecruiters is the same story: BoschGroup, not
+-- bosch. So coordinates are read off a real careers URL and recorded here.
+--
+-- Failures are cached as deliberately as successes. A sweep over thousands of
+-- employers must never re-probe a name it has already answered, or it burns
+-- politeness budget it cannot afford and can never be resumed.
+CREATE TABLE IF NOT EXISTS board_registry (
+    company_name    TEXT        PRIMARY KEY,
+    -- NULL means "looked, found nothing" - a real answer, not a missing one.
+    ats             TEXT,
+    -- Shape differs by system: {slug} for the startup boards, and
+    -- {tenant, host, site} for Workday. Kept as JSON so a new adapter needs
+    -- no migration.
+    coords          JSONB,
+
+    status          TEXT        NOT NULL,   -- resolved | not_found | error
+    -- How far the identity check got. A guessed slug that the board itself
+    -- confirms by name is trustworthy; one that only matches on tokens is a
+    -- guess we are choosing to accept. Attaching another company's jobs to a
+    -- page is worse than showing none, so the grade travels with the entry.
+    confidence      TEXT,                   -- manual | name_verified | token_match
+    discovered_via  TEXT,                   -- manual | guess
+    postings_seen   INTEGER,
+    note            TEXT,
+
+    first_tried_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    verified_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_board_registry_status ON board_registry (status);
