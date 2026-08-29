@@ -56,9 +56,34 @@ jobs:
           fi
           echo "DATABASE_URL present: ${#DATABASE_URL} characters, starts with ${DATABASE_URL%%:*}:"
 
+      # Output is teed to a file and, on failure, written to the run summary.
+      # Step logs need admin rights to download via the API, so a failure that
+      # only appears there is effectively invisible to anyone debugging from
+      # outside the repo. The summary page is public and copyable.
       - name: Build site
         timeout-minutes: 15
-        run: python site/build.py
+        run: |
+          set -o pipefail
+          python -u site/build.py 2>&1 | tee /tmp/build.log
+
+      - name: Report failure to run summary
+        if: failure()
+        run: |
+          {
+            echo "## Site build failed"
+            echo
+            echo '```'
+            tail -40 /tmp/build.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+            echo
+            echo "| check | value |"
+            echo "| --- | --- |"
+            echo "| python | $(python --version 2>&1) |"
+            echo "| DATABASE_URL length | ${#DATABASE_URL} |"
+            echo "| jinja2 | $(python -c 'import jinja2;print(jinja2.__version__)' 2>&1) |"
+            echo "| psycopg2 | $(python -c 'import psycopg2;print(psycopg2.__version__)' 2>&1) |"
+            echo "| files in site/ | $(ls site | tr '\n' ' ') |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # The build refuses to run on an empty query, but a site that silently
       # loses most of its pages would still deploy. This is the floor check.
