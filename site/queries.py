@@ -153,3 +153,43 @@ SELECT
     (SELECT max(posted_date)::date FROM raw_postings)  AS latest_posting,
     (SELECT count(DISTINCT snapshot_date) FROM market_snapshots) AS days_of_history
 """
+
+
+# --- outreach-grade company comparison --------------------------------------
+
+# Peers, plus the metrics needed to compare against them. Suppressed entirely
+# for companies below the similarity floor - see int_company_peers.
+COMPANY_PEERS = """
+SELECT p.company_name, p.peer_name, p.peer_rank, p.shared_technologies, p.similarity,
+       d.total_postings, d.postings_last_30d, d.distinct_states, d.pace_change_pct,
+       s.total_filings
+FROM int_company_peers p
+JOIN dim_company d ON d.company_name = p.peer_name
+LEFT JOIN int_company_sponsorship s
+       ON s.company_name = p.peer_name AND s.is_confident_match
+ORDER BY p.company_name, p.peer_rank
+"""
+
+# Where a company's technologies sit in market-wide demand. This is the tier
+# nothing else can produce: not "they use Redshift" but "they use Redshift,
+# which ranks fourth in a category Databricks leads".
+COMPANY_MARKET_POSITION = """
+WITH company_tech AS (
+    SELECT r.company_name, pt.tech_slug, count(DISTINCT r.job_id) AS mentions
+    FROM raw_postings r
+    JOIN posting_technologies pt ON pt.source = r.source AND pt.job_id = r.job_id
+    WHERE r.company_name IN (SELECT company_name FROM dim_company WHERE total_postings >= 5)
+    GROUP BY 1, 2
+)
+SELECT ct.company_name, ct.tech_slug, t.tech_name, t.category, ct.mentions,
+       m.openings, m.category_rank, m.pct_of_category,
+       sal.pct_top_band
+FROM company_tech ct
+JOIN dim_technology t ON t.tech_slug = ct.tech_slug
+JOIN market_demand m ON m.tech_slug = ct.tech_slug
+   AND m.snapshot_date = (SELECT max(snapshot_date) FROM market_demand)
+LEFT JOIN salary_by_tech sal ON sal.tech_slug = ct.tech_slug
+   AND sal.snapshot_date = m.snapshot_date
+WHERE NOT t.is_ubiquitous
+ORDER BY ct.company_name, ct.mentions DESC
+"""

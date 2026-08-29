@@ -10,13 +10,76 @@
 <div class="kpis">
   <div class="kpi"><b>{{ c.total_postings | fmt }}</b><span>Tracked roles</span></div>
   <div class="kpi"><b>{{ c.postings_last_30d | fmt }}</b><span>Last 30 days</span></div>
-  {% if c.pace_change_pct is not none %}
-  <div class="kpi"><b>{{ '+' if c.pace_change_pct > 0 else '' }}{{ c.pace_change_pct | int }}%</b><span>vs prior month</span></div>
-  {% endif %}
+
   {% if c.total_filings %}
   <div class="kpi good"><b>{{ c.total_filings | fmt }}</b><span>Visa filings</span></div>
   {% endif %}
 </div>
+
+{% if headline %}<p class="lead">{{ headline }}</p>{% endif %}
+
+{% if peer_stats %}
+<h2>How they compare</h2>
+<p>
+  Against {{ peer_stats.count }} companies hiring for a similar technology mix
+  ({{ peer_stats.names }}{% if peer_stats.count > 3 %} and others{% endif %}),
+  {{ c.company_name }} posted <b class="num">{{ peer_stats.own_last_30d }}</b> roles in the
+  last 30 days against a peer median of <b class="num">{{ peer_stats.median_last_30d }}</b>{%
+  if peer_stats.ratio %} — {{ peer_stats.ratio }}&times; the pace{% endif %}.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Company</th><th class="r">Roles</th><th class="r">Last 30d</th><th class="r">States</th><th class="r">Visa filings</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>{{ c.company_name }}</b></td>
+      <td class="r">{{ c.total_postings | fmt }}</td>
+      <td class="r">{{ c.postings_last_30d | fmt }}</td>
+      <td class="r">{{ c.distinct_states or '—' }}</td>
+      <td class="r">{{ c.total_filings | fmt if c.total_filings else '—' }}</td>
+    </tr>
+    {% for p in peers %}
+    <tr>
+      <td><a href="{{ rel }}companies/{{ p.slug }}/">{{ p.peer_name }}</a></td>
+      <td class="r">{{ p.total_postings | fmt }}</td>
+      <td class="r">{{ p.postings_last_30d | fmt }}</td>
+      <td class="r">{{ p.distinct_states or '—' }}</td>
+      <td class="r">{{ p.total_filings | fmt if p.total_filings else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note">
+  Peers are derived from the data, not assigned by hand: the companies whose postings
+  mention the most similar set of technologies. Shown only where the overlap is large
+  enough to be meaningful, which is why many companies have no comparison here.
+</p>
+{% endif %}
+
+{% if market_pos %}
+<h2>Their stack against the market</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Technology</th><th class="r">Their postings</th><th class="r">US openings</th><th class="r">Rank in category</th></tr></thead>
+  <tbody>
+  {% for m in market_pos %}
+    <tr>
+      <td><a href="{{ rel }}tech/{{ m.tech_slug }}/">{{ m.tech_name }}</a></td>
+      <td class="r">{{ m.mentions | fmt }}</td>
+      <td class="r">{{ m.openings | fmt }}</td>
+      <td class="r">#{{ m.category_rank }} in {{ m.category }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note">
+  Market openings come from the job board's market-wide index, updated daily, so they
+  do not depend on which postings Signal collected. Ubiquitous tools such as Python and
+  SQL are excluded because naming them says nothing about an employer.
+</p>
+{% endif %}
 
 <h2>Visa sponsorship</h2>
 {% if c.total_filings %}

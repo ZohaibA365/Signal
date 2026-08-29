@@ -1,42 +1,45 @@
 name: Daily pipeline
 
-# The scheduled production run. Unlike CI this needs real credentials, so it is
-# split into its own workflow: pull request checks stay runnable by anyone,
-# and only this one depends on secrets.
+# Collects the day's postings and refreshes the warehouse. This is what keeps
+# the site's numbers moving: the publish workflow only re-renders whatever the
+# warehouse already holds, so without this the site republishes identical
+# figures forever - live-looking and static.
 #
-# Required repository secrets:
-#   ANTHROPIC_API_KEY, ADZUNA_APP_ID, ADZUNA_API_KEY,
-#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET,
-#   DATABASE_URL   (the Neon connection string)
+# Steps are deliberately narrow and individually named. Step logs need admin
+# rights to download even on a public repo, but step NAMES and outcomes are
+# public, so a failure identifies itself without anyone reading a log. That is
+# what diagnosed the site build after several blind attempts.
+#
+# Required secrets:
+#   DATABASE_URL, ADZUNA_APP_ID, ADZUNA_API_KEY,
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET, ANTHROPIC_API_KEY
 on:
   schedule:
-    - cron: "0 7 * * *"        # 07:00 UTC
+    - cron: "0 7 * * *"          # 07:00 UTC, before the 07:30 site build
   workflow_dispatch:
     inputs:
       skip_enrichment:
-        description: "Skip the LLM scoring step (saves cost)"
+        description: "Skip LLM scoring (saves cost)"
         type: boolean
         default: false
 
 concurrency:
-  group: daily-pipeline        # runs share warehouse tables
+  group: daily-pipeline          # runs share warehouse tables
   cancel-in-progress: false
 
 jobs:
   pipeline:
-    name: Capture, load, transform, score, validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
       ADZUNA_API_KEY: ${{ secrets.ADZUNA_API_KEY }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: us-east-1
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DO_NOT_TRACK: "1"
 
     steps:
@@ -46,40 +49,93 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: pip install -r requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
 
-      # The compounding asset. Runs first and independently: a missed snapshot
-      # cannot be backfilled, because the source API only reports today.
+      # Names every missing secret at once rather than failing on the first,
+      # so one run tells you everything to add instead of six.
+      - name: Check secrets are present
+        run: |
+          missing=""
+          for v in DATABASE_URL ADZUNA_APP_ID ADZUNA_API_KEY \
+                   AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY S3_BUCKET; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            echo "Add them under Settings -> Secrets and variables -> Actions." >> "$GITHUB_STEP_SUMMARY"
+            echo "Missing:$missing" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "all required secrets present"
+
+      - name: Check warehouse reachable
+        timeout-minutes: 10
+        run: |
+          python -c "
+          import sys; sys.path.insert(0, 'storage')
+          from db import connect, describe
+          c = connect(autocommit=True); cur = c.cursor()
+          cur.execute('select count(*) from raw_postings')
+          print('warehouse OK via', describe(), '-', cur.fetchone()[0], 'rows')
+          "
+
+      # The compounding asset, and the only step that cannot be backfilled:
+      # the source API reports today's demand and nothing else, so a missed
+      # run is a permanent hole in the series. It runs first for that reason.
       - name: Market snapshot
+        timeout-minutes: 20
         run: python ingestion/market_snapshot.py
 
       - name: Ingest postings
+        timeout-minutes: 30
         run: python ingestion/adzuna_ingest.py --pages 5 --country us ca --resume
 
       - name: Load to warehouse
+        timeout-minutes: 20
         run: python storage/load_to_warehouse.py --country us ca
 
       - name: Extract technologies
         run: python ai_layer/extract_tech.py
 
       - name: Transform
+        timeout-minutes: 20
         working-directory: dbt_signal
         run: dbt build --profiles-dir . --no-version-check --target prod
 
-      # Capped: the only step that spends money.
+      # Capped: the only step that spends money. The enricher also skips any
+      # posting whose text has not changed.
       - name: Score new roles
         if: ${{ !inputs.skip_enrichment }}
+        timeout-minutes: 40
+        continue-on-error: true          # a scoring failure must not block the refresh
         run: PYTHONPATH=ai_layer python ai_layer/enrich.py --seniority intern entry --limit 150
 
       - name: Refresh marts
-        if: ${{ !inputs.skip_enrichment }}
         working-directory: dbt_signal
         run: dbt build --profiles-dir . --no-version-check --target prod --select marts.*+
 
-      # Gates the run. No retry: a failing check is a real problem and the
-      # point is to be told, not to paper over it.
+      # Gates the run. No retry: a failing check is a real problem, and
+      # retrying only delays learning about it.
       - name: Data quality checks
         run: python quality/expectations.py
 
       - name: Export curated Parquet
         run: python storage/export_parquet.py
+
+      - name: Summarise the run
+        if: always()
+        run: |
+          {
+            echo "## Daily pipeline"
+            python -c "
+          import sys; sys.path.insert(0, 'storage')
+          from db import connect
+          c = connect(autocommit=True); cur = c.cursor()
+          for label, q in [('postings','select count(*) from raw_postings'),
+                           ('companies','select count(*) from dim_company'),
+                           ('scored','select count(*) from job_enrichment'),
+                           ('snapshot days','select count(distinct snapshot_date) from market_snapshots')]:
+              cur.execute(q); print(f'| {label} | {cur.fetchone()[0]:,} |')
+          " 2>/dev/null | sed '1i | metric | value |\n| --- | --- |'
+          } >> "$GITHUB_STEP_SUMMARY"

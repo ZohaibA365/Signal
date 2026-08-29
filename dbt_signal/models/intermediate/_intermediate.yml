@@ -6,3 +6,26 @@ models:
     columns:
       - name: company_name
         tests: [not_null, unique]
+
+  - name: int_company_peers
+    description: >
+      Companies hiring for the most similar technology mix, with a floor that
+      suppresses weak matches entirely. Published on company pages, so a wrong
+      peer is worse than no peer.
+    columns:
+      - name: company_name
+        tests: [not_null]
+      - name: peer_name
+        tests: [not_null]
+      - name: shared_technologies
+        tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 15, inclusive: true}
+      - name: similarity
+        tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0.35, max_value: 1, inclusive: true}
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [company_name, peer_name]

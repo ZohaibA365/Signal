@@ -44,6 +44,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(m
 log = logging.getLogger("build")
 
 DIST = HERE / "dist"
+# Below this many days of collection, month-over-month comparisons
+# describe our ingest history rather than the market.
+MIN_DAYS_FOR_TREND = 45
 SITE_URL = os.getenv("SITE_URL", "https://signal-jobs.dev")
 REPO_URL = "https://github.com/ZohaibA365/Signal"
 
@@ -66,6 +69,69 @@ def fetch_all(cur) -> dict:
         data[name] = rows
         log.info("  %-22s %s rows", name, f"{len(rows):,}")
     return data
+
+
+def peer_summary(peers: list[dict], c: dict) -> dict | None:
+    """
+    How a company compares to its peer set on hiring pace.
+
+    Returns None when there are no peers - the page then shows no comparison
+    at all, which is the right outcome. A wrong peer claim on a page the
+    company itself may read is worse than a missing section.
+    """
+    if not peers:
+        return None
+    last30 = sorted(p["postings_last_30d"] or 0 for p in peers)
+    median = last30[len(last30) // 2]
+    own = c["postings_last_30d"] or 0
+    ratio = (own / median) if median else None
+    return {
+        "count": len(peers),
+        "median_last_30d": median,
+        "own_last_30d": own,
+        "ratio": round(ratio, 1) if ratio else None,
+        "faster": ratio is not None and ratio >= 1.3,
+        "slower": ratio is not None and ratio <= 0.7,
+        "names": ", ".join(p["peer_name"] for p in peers[:3]),
+    }
+
+
+def headline_for(c: dict, peers: list[dict], collection_days: int) -> str | None:
+    """
+    The single strongest true observation about a company.
+
+    NO MONTH-OVER-MONTH CLAIMS until the corpus can support them. An earlier
+    version produced "Google's hiring is up 2600%", which is false: job boards
+    delist filled roles, so a freshly collected corpus always shows far more
+    recent postings than older ones. Google's prior window held 3 postings
+    against 81 recent, and corpus-wide the same artifact reads as 1.9x. With
+    only a handful of collection days behind it, a pace claim measures when we
+    started collecting, not how a company is hiring.
+
+    That is the same failure as the "Python demand fell 70%" claim caught in
+    the trend model. Counts, shares and peer-relative comparisons survive it,
+    because a comparison between two companies carries the bias on both sides
+    and cancels most of it. Absolute change over time does not.
+    """
+    total = c["total_postings"] or 0
+    last30 = c["postings_last_30d"] or 0
+
+    if collection_days >= MIN_DAYS_FOR_TREND and (c["postings_prior_30d"] or 0) >= 10:
+        prior = c["postings_prior_30d"]
+        change = round(100.0 * (last30 - prior) / prior)
+        if abs(change) >= 50:
+            direction = "accelerated" if change > 0 else "slowed"
+            return (f"Hiring has {direction}: {last30} roles posted in the last 30 days, "
+                    f"{'up' if change > 0 else 'down'} {abs(change)}% on the month before.")
+
+    if c["total_filings"] and c["total_filings"] >= 20:
+        return (f"Has filed {c['total_filings']:,} US visa applications, so sponsorship "
+                f"is a matter of record rather than inference.")
+    if (c["distinct_states"] or 0) >= 15:
+        return f"Hiring across {c['distinct_states']} states."
+    if total >= 40:
+        return f"{total:,} tracked roles, {last30} of them posted in the last 30 days."
+    return None
 
 
 def with_bars(rows: list[dict], key: str, limit: int | None = None) -> list[dict]:
@@ -158,6 +224,10 @@ def build(skip_pages: bool = False) -> None:
 
     stats = data["CORPUS_STATS"][0]
     fresh = data["FRESHNESS"][0]
+    # How many distinct days we have actually collected on. Trend claims are
+    # gated on this: with a short history, "last 30 days vs the 30 before"
+    # measures the collection start date rather than the market.
+    collection_days = fresh.get("days_of_history") or 0
     common = {
         "stats": stats, "freshness": fresh, "site_url": SITE_URL, "repo_url": REPO_URL,
         "generated_at": datetime.now(UTC).strftime("%d %b %Y"),
@@ -192,6 +262,17 @@ def build(skip_pages: bool = False) -> None:
            salary=salary[:15], pairs=data["STACK_PAIRS"][:12])
 
     # ---- company pages ---------------------------------------------------
+    # Peer comparison and market position, grouped once rather than queried
+    # per page. These are the sections that make a company page worth sending
+    # to someone who works there.
+    peers_by_company: dict[str, list] = {}
+    for r in data["COMPANY_PEERS"]:
+        r["slug"] = slugify(r["peer_name"])
+        peers_by_company.setdefault(r["company_name"], []).append(r)
+    market_by_company: dict[str, list] = {}
+    for r in data["COMPANY_MARKET_POSITION"]:
+        market_by_company.setdefault(r["company_name"], []).append(r)
+
     tech_by_company: dict[str, list] = {}
     for r in data["COMPANY_TECH"]:
         tech_by_company.setdefault(r["company_name"], []).append(r)
@@ -212,7 +293,13 @@ def build(skip_pages: bool = False) -> None:
                    f"{c['company_name']}: {c['total_postings']:,} tracked data and AI roles, "
                    f"{c['postings_last_30d']} in the last 30 days"
                    + (f", {c['total_filings']:,} H-1B filings." if c["total_filings"] else ".")),
-               c=c, techs=with_bars(techs, "mentions"), roles=roles)
+               c=c, techs=with_bars(techs, "mentions"), roles=roles,
+               peers=peers_by_company.get(c["company_name"], []),
+               peer_stats=peer_summary(peers_by_company.get(c["company_name"], []), c),
+               market_pos=[m for m in market_by_company.get(c["company_name"], [])
+                           if m["mentions"] >= 2][:8],
+               headline=headline_for(c, peers_by_company.get(c["company_name"], []),
+                                     collection_days))
 
     render("list.html", DIST / "companies" / "index.html", nav="companies", rel="../",
            canonical="/companies/",
