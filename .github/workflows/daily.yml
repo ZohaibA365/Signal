@@ -87,13 +87,34 @@ jobs:
         timeout-minutes: 20
         run: python ingestion/market_snapshot.py
 
-      - name: Ingest postings
+      - name: Ingest postings from aggregator
         timeout-minutes: 30
         run: python ingestion/adzuna_ingest.py --pages 5 --country us ca --resume
 
-      - name: Load to warehouse
+      # The job list is built from career boards, not the aggregator: an
+      # Adzuna link is country-gated and cannot be clicked from outside the
+      # posting's own country. Without this step the site would keep
+      # republishing the same board postings while only the market statistics
+      # moved.
+      - name: Ingest postings from career boards
+        timeout-minutes: 45
+        run: python ingestion/board_ingest.py
+
+      # Newly seen employers become candidates for their own board. Capped so
+      # the daily run stays bounded; failures are cached, so each day works
+      # through companies the previous days have not already answered.
+      - name: Discover new boards
+        timeout-minutes: 20
+        continue-on-error: true
+        run: python ingestion/board_discovery.py --load-manual --top 60
+
+      - name: Load aggregator postings to warehouse
         timeout-minutes: 20
         run: python storage/load_to_warehouse.py --country us ca
+
+      - name: Load board postings to warehouse
+        timeout-minutes: 20
+        run: python storage/load_to_warehouse.py --boards
 
       - name: Extract technologies
         run: python ai_layer/extract_tech.py

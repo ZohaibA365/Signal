@@ -41,7 +41,7 @@ def _normalise(url: str) -> str:
     return re.sub(r"[?&]channel_binding=[^&]*", "", url)
 
 
-def connect(autocommit: bool = False):
+def connect(autocommit: bool = False, cursor_factory=None):
     """
     Open a warehouse connection.
 
@@ -58,8 +58,11 @@ def connect(autocommit: bool = False):
         # timeout turns that wake into a spurious failure.
         timeout = int(os.getenv("PG_CONNECT_TIMEOUT", "60"))
         primary = _normalise(url)
+        kw = {"connect_timeout": timeout}
+        if cursor_factory is not None:
+            kw["cursor_factory"] = cursor_factory
         try:
-            conn = psycopg2.connect(primary, connect_timeout=timeout)
+            conn = psycopg2.connect(primary, **kw)
         except psycopg2.OperationalError:
             # Fall back from the pooled endpoint to the direct one. PgBouncer
             # is right for many short connections and is the more fragile of
@@ -67,7 +70,7 @@ def connect(autocommit: bool = False):
             direct = primary.replace("-pooler", "")
             if direct == primary:
                 raise
-            conn = psycopg2.connect(direct, connect_timeout=timeout)
+            conn = psycopg2.connect(direct, **kw)
     else:
         conn = psycopg2.connect(
             host=os.getenv("POSTGRES_HOST", "localhost"),
@@ -75,6 +78,7 @@ def connect(autocommit: bool = False):
             dbname=os.getenv("POSTGRES_DB", "signal"),
             user=os.getenv("POSTGRES_USER", "signal"),
             password=os.getenv("POSTGRES_PASSWORD", "signal"),
+            **({"cursor_factory": cursor_factory} if cursor_factory else {}),
         )
     conn.autocommit = autocommit
     return conn

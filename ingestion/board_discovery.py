@@ -39,14 +39,15 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import psycopg2
 import yaml
 from dotenv import load_dotenv
 from psycopg2.extras import Json, RealDictCursor
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "storage"))
 from ats import ADAPTERS, GUESSABLE  # noqa: E402
 from ats.base import get_json, slug_variants  # noqa: E402
+from db import connect as _connect  # noqa: E402
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
@@ -167,8 +168,9 @@ ON CONFLICT (company_name) DO UPDATE SET
 
 
 def connect():
-    return psycopg2.connect(os.getenv("NEON_DATABASE_URL"),
-                            cursor_factory=RealDictCursor)
+    """The shared warehouse connection, so this job targets the same database
+    as dbt and the site rather than whatever POSTGRES_* happens to be set."""
+    return _connect(cursor_factory=RealDictCursor)
 
 
 # Results are written in batches rather than once at the end. A sweep of a few

@@ -35,14 +35,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 import boto3
-import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "storage"))
 from ats import ADAPTERS  # noqa: E402
 from ats.base import clean, get_json  # noqa: E402
 from company_boards import in_scope  # noqa: E402
+from db import connect  # noqa: E402
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
@@ -155,8 +156,7 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    conn = psycopg2.connect(os.getenv("NEON_DATABASE_URL"),
-                            cursor_factory=RealDictCursor)
+    conn = connect(cursor_factory=RealDictCursor)
     try:
         boards = resolved_boards(conn, args.company)
     finally:
