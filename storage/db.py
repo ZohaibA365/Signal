@@ -17,6 +17,7 @@ deploying meant editing each one.
 from __future__ import annotations
 
 import os
+import re
 
 import psycopg2
 
@@ -24,6 +25,20 @@ import psycopg2
 def connection_url() -> str | None:
     """The connection URL to use, or None when falling back to POSTGRES_*."""
     return os.getenv("DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
+
+
+def _normalise(url: str) -> str:
+    """
+    Make a Neon URL portable across platforms.
+
+    channel_binding=require demands SCRAM channel binding, which depends on
+    the client's OpenSSL build. It succeeds with macOS's OpenSSL and is the
+    known-fragile parameter on Linux CI images. Dropping it costs nothing:
+    sslmode=require still encrypts the connection, and it is the parameter
+    most likely to explain a connection that works locally and fails on a
+    runner.
+    """
+    return re.sub(r"[?&]channel_binding=[^&]*", "", url)
 
 
 def connect(autocommit: bool = False):
@@ -38,7 +53,21 @@ def connect(autocommit: bool = False):
     """
     url = connection_url()
     if url:
-        conn = psycopg2.connect(url)
+        # Neon suspends idle compute, so the first connection of the day waits
+        # for it to wake - measured at minutes, not seconds. A short default
+        # timeout turns that wake into a spurious failure.
+        timeout = int(os.getenv("PG_CONNECT_TIMEOUT", "60"))
+        primary = _normalise(url)
+        try:
+            conn = psycopg2.connect(primary, connect_timeout=timeout)
+        except psycopg2.OperationalError:
+            # Fall back from the pooled endpoint to the direct one. PgBouncer
+            # is right for many short connections and is the more fragile of
+            # the two for a single long-lived batch job.
+            direct = primary.replace("-pooler", "")
+            if direct == primary:
+                raise
+            conn = psycopg2.connect(direct, connect_timeout=timeout)
     else:
         conn = psycopg2.connect(
             host=os.getenv("POSTGRES_HOST", "localhost"),

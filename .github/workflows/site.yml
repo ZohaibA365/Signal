@@ -72,10 +72,11 @@ jobs:
         timeout-minutes: 10
         run: |
           python -c "
-          import os, psycopg2
-          c = psycopg2.connect(os.environ['DATABASE_URL'])
+          import sys; sys.path.insert(0, 'storage')
+          from db import connect, describe
+          c = connect(autocommit=True)
           cur = c.cursor(); cur.execute('select count(*) from raw_postings')
-          print('warehouse OK, rows:', cur.fetchone()[0])
+          print('warehouse OK via', describe(), '-', cur.fetchone()[0], 'rows')
           "
 
       - name: Build site
