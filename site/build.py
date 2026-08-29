@@ -39,7 +39,7 @@ sys.path.insert(0, str(ROOT / "storage"))
 sys.path.insert(0, str(HERE))
 
 import queries as Q  # noqa: E402
-from db import connect  # noqa: E402
+from db import connect, describe  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("build")
@@ -108,9 +108,21 @@ def league_table(rows, label_key, value_key, link=None, limit=8) -> Markup:
 
 def build(skip_pages: bool = False) -> None:
     started = time.time()
+
+    # Without an explicit connection URL, db.connect() falls back to localhost.
+    # That is right for development and actively misleading in CI, where there
+    # is no local Postgres: the build would fail on a missing relation rather
+    # than naming the real problem, which is an absent credential.
+    if os.getenv("CI") and not (os.getenv("DATABASE_URL") or os.getenv("NEON_DATABASE_URL")):
+        raise SystemExit(
+            "DATABASE_URL is not set. The site is generated from the warehouse, so "
+            "the build needs a connection string. Add it as a repository secret "
+            "under Settings -> Secrets and variables -> Actions."
+        )
+
     conn = connect(autocommit=True)
     cur = conn.cursor()
-    log.info("Querying warehouse")
+    log.info("Querying %s", describe())
     data = fetch_all(cur)
     conn.close()
 
