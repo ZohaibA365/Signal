@@ -21,12 +21,16 @@ import logging
 import os
 import sys
 
-import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.dirname(__file__))
 from taxonomy import BY_SLUG, match_technologies  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "storage"))
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "storage"))
+from db import connect  # noqa: E402
 
 load_dotenv()
 
@@ -42,11 +46,11 @@ def main() -> None:
                     help="clear existing matches and re-match every posting")
     args = ap.parse_args()
 
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST"), port=os.getenv("POSTGRES_PORT"),
-        dbname=os.getenv("POSTGRES_DB"), user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
+    # The shared connection, not the POSTGRES_* variables. Reading those
+    # directly targets the local container while dbt and the site read the
+    # hosted warehouse - and in CI they are not set at all, so this step
+    # dialled a localhost that does not exist there and failed every run.
+    conn = connect()
 
     with conn, conn.cursor() as cur:
         if args.rebuild:

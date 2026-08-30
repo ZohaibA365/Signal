@@ -25,14 +25,19 @@ import argparse
 import hashlib
 import logging
 import os
+import sys
 from profile import ACTIVE as ACTIVE_PROFILE
 from profile import as_prompt_context
 
 import anthropic
-import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "storage"))
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "storage"))
+from db import connect  # noqa: E402
 
 load_dotenv()
 
@@ -237,11 +242,11 @@ def main() -> None:
     # hour on a single stalled request. These are short classification calls -
     # if one has not returned in 90s it is not going to.
     client = anthropic.Anthropic(timeout=90.0, max_retries=3)
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST"), port=os.getenv("POSTGRES_PORT"),
-        dbname=os.getenv("POSTGRES_DB"), user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
+    # The shared connection, not the POSTGRES_* variables. Reading those
+    # directly targets the local container while dbt and the site read the
+    # hosted warehouse - and in CI they are not set at all, so this step
+    # dialled a localhost that does not exist there and failed every run.
+    conn = connect()
 
     with conn, conn.cursor() as cur:
         rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
