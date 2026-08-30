@@ -270,6 +270,15 @@ def load_manual(conn) -> int:
 
 # ------------------------------------------------------------------------ cli
 
+def target_names(args) -> list[str]:
+    """Company names from --company/--companies and/or --companies-file."""
+    names = list(getattr(args, "company", None) or [])
+    if getattr(args, "companies_file", None):
+        with open(args.companies_file) as fh:
+            names += [ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")]
+    return names
+
+
 def report(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("""
@@ -286,7 +295,9 @@ def report(conn) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Resolve company career boards")
     ap.add_argument("--top", type=int, help="sweep the N largest employers")
-    ap.add_argument("--company", nargs="+", help="resolve specific companies")
+    ap.add_argument("--company", "--companies", nargs="+", dest="company",
+                    help="resolve specific companies")
+    ap.add_argument("--companies-file", help="file with one company name per line")
     ap.add_argument("--load-manual", action="store_true", help="apply boards.yml")
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--retry-failed", action="store_true",
@@ -300,7 +311,7 @@ def main() -> None:
             log.info("applying %s", MANUAL_FILE.name)
             log.info("loaded %d manual entries", load_manual(conn))
 
-        names: list[str] = list(args.company or [])
+        names: list[str] = target_names(args)
         if args.top:
             names += targets_by_volume(conn, args.top)
         if names:

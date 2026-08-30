@@ -3,8 +3,9 @@ One command: company names in, opening lines out.
 
 Chains the whole outreach path so a target list needs no manual steps:
 
-    ingest each company's career board  ->  load to the warehouse
-    ->  extract technologies  ->  compute insights  ->  print opening lines
+    resolve each company to its board  ->  pull its postings
+    ->  load to the warehouse  ->  extract technologies
+    ->  compute insights  ->  draft the three messages
 
 Companies already ingested today are skipped, so re-running is cheap.
 
@@ -48,8 +49,15 @@ def main() -> None:
         raise SystemExit("Give --companies or --companies-file")
 
     if not args.skip_ingest:
-        run("Pulling career boards (Greenhouse / Lever / Ashby)",
-            [PY, "ingestion/company_boards.py", *target_args])
+        # Resolve each company to a board first. company_boards.py guessed
+        # Greenhouse, Lever and Ashby slugs on every run and kept nothing, so
+        # it re-probed the same names each time and never reached the systems
+        # the large employers actually use. Discovery caches its answers -
+        # successes and failures - and the ingester then reads the registry.
+        run("Resolving career boards",
+            [PY, "ingestion/board_discovery.py", *target_args])
+        run("Pulling postings from those boards",
+            [PY, "ingestion/board_ingest.py", *target_args])
         run("Loading into the warehouse",
             [PY, "storage/load_to_warehouse.py", "--boards"])
         run("Extracting technologies (dictionary, no model calls)",
@@ -59,6 +67,11 @@ def main() -> None:
     if args.json:
         insight_args += ["--json", args.json]
     run("Computing insights", insight_args)
+
+    draft_args = [PY, "outreach/compose.py", *target_args]
+    if args.json:
+        draft_args += ["--json", args.json.replace(".json", "-drafts.json")]
+    run("Drafting messages", draft_args)
 
 
 if __name__ == "__main__":

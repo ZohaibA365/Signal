@@ -150,15 +150,26 @@ def _detail_only(ats: str, coords: dict, wanted: list[dict],
     return [r for r in results if r]
 
 
+def target_names(args) -> list[str]:
+    """Company names from --company/--companies and/or --companies-file."""
+    names = list(getattr(args, "company", None) or [])
+    if getattr(args, "companies_file", None):
+        with open(args.companies_file) as fh:
+            names += [ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")]
+    return names
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Ingest every registered career board")
-    ap.add_argument("--company", nargs="+", help="restrict to these companies")
+    ap.add_argument("--company", "--companies", nargs="+", dest="company",
+                    help="restrict to these companies")
+    ap.add_argument("--companies-file", help="file with one company name per line")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     conn = connect(cursor_factory=RealDictCursor)
     try:
-        boards = resolved_boards(conn, args.company)
+        boards = resolved_boards(conn, target_names(args) or None)
     finally:
         conn.close()
     log.info("%d resolved boards", len(boards))
