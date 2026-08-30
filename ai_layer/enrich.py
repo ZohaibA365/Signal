@@ -114,10 +114,14 @@ def _hash(text: str) -> str:
 # enough: "entry" matches Consumer Sales Associate and Legal Content
 # Development Associate as readily as it matches Data Engineer Intern, and
 # each one costs a full-description API call to learn it was never relevant.
+# "develop" was matching Business Development Associate, and a false positive
+# here is not free - it is a full-description API call spent to learn the role
+# was never in scope. Stems are anchored to the words that actually appear in
+# engineering titles.
 RELEVANT_TITLE = (
-    r"data|analyt|engineer|develop|software|machine learning|scien|platform|"
-    r"infrastructur|backend|back-end|full.?stack|python|sql|cloud|devops|sre|"
-    r"quant|research")
+    r"data|analytic|analyst|engineer|developer|software|machine learning|"
+    r"data scien|platform|infrastructur|backend|back-end|full.?stack|python|"
+    r"\msql\M|cloud|devops|\msre\M|quantitative|research engineer")
 
 
 def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
