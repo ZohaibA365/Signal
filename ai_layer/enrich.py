@@ -110,8 +110,19 @@ def _hash(text: str) -> str:
     return hashlib.sha256((text or "").encode()).hexdigest()[:16]
 
 
+# Titles worth paying to score for this profile. Seniority alone is not
+# enough: "entry" matches Consumer Sales Associate and Legal Content
+# Development Associate as readily as it matches Data Engineer Intern, and
+# each one costs a full-description API call to learn it was never relevant.
+RELEVANT_TITLE = (
+    r"data|analyt|engineer|develop|software|machine learning|scien|platform|"
+    r"infrastructur|backend|back-end|full.?stack|python|sql|cloud|devops|sre|"
+    r"quant|research")
+
+
 def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
-                     min_salary: int | None = None, linkable: bool = False):
+                     min_salary: int | None = None, linkable: bool = False,
+                     relevant: bool = False):
     """
     Roles that still need scoring, for one profile.
 
@@ -138,6 +149,9 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
     if not force:
         sql += (" AND (e.job_id IS NULL OR e.description_hash <> "
                 "substring(encode(sha256(convert_to(r.description_raw,'UTF8')),'hex') for 16))")
+    if relevant:
+        sql += " AND r.job_title ~* %(relevant)s"
+        params["relevant"] = RELEVANT_TITLE
     if linkable:
         # Only postings the site can actually publish. Scoring is the most
         # expensive step in the pipeline and an aggregator-sourced posting is
@@ -229,6 +243,8 @@ def main() -> None:
     ap.add_argument("--force", action="store_true", help="re-score already-scored postings")
     ap.add_argument("--linkable", action="store_true",
                     help="only postings with a working employer link (what the site shows)")
+    ap.add_argument("--relevant", action="store_true",
+                    help="only titles plausibly in scope for this profile")
     ap.add_argument("--table", default="ranked_opportunities",
                     help="marts table or view to score from")
     ap.add_argument("--min-salary", type=int,
@@ -251,7 +267,7 @@ def main() -> None:
     with conn, conn.cursor() as cur:
         rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
                                 args.table, ACTIVE_PROFILE, args.min_salary,
-                                args.linkable)
+                                args.linkable, args.relevant)
         log.info("%s roles to score with %s [profile=%s, table=%s]",
                  len(rows), MODEL, ACTIVE_PROFILE, args.table)
         if not rows:

@@ -63,6 +63,25 @@ AGENCY_RE = re.compile(
     r"resourc|placement|search group|agency|staffmark|robert half|insight global",
     re.I)
 
+# Companies that have a real board and are still not employers of the postings
+# on it. Job aggregators and staffing firms republish other companies' roles
+# under their own name, so the employer attribution is wrong and the link goes
+# to a middleman - exactly the problem the board switch was meant to solve,
+# wearing a board's clothing. Jobgether alone contributed 1,368 postings of it.
+#
+# Name-matching cannot catch these: "Jobgether" and "iSpace" read like
+# ordinary employers. They have to be listed.
+DENYLIST = {
+    "jobgether", "ispace inc", "stellent it llc", "next step systems",
+    "inherent technologies", "hirevouch", "jobot", "crossover", "toptal",
+    "andela", "turing", "braintrust", "wellfound", "lensa", "talentify",
+    "dice", "ziprecruiter", "adzuna", "jooble", "remotecom",
+}
+
+
+def is_denied(name: str) -> bool:
+    return canon(name) in {canon(x) for x in DENYLIST} or bool(AGENCY_RE.search(name))
+
 LEGAL_RE = re.compile(r"\b(inc|llc|ltd|corp|corporation|company|co|plc|gmbh|sa|nv)\b\.?", re.I)
 
 
@@ -128,6 +147,12 @@ def confirm(ats: str, slug: str) -> int:
 
 def resolve(company: str) -> dict:
     """Try every guessable board for one company. Cheapest boards first."""
+    if is_denied(company):
+        return {"company_name": company, "ats": None, "coords": None,
+                "status": "not_found", "confidence": None, "discovered_via": "guess",
+                "postings_seen": None,
+                "note": "aggregator or staffing firm - republishes other "
+                        "companies' roles under its own name"}
     for slug in slug_variants(company):
         for ats in GUESSABLE:
             try:
@@ -202,7 +227,7 @@ def targets_by_volume(conn, limit: int) -> list[str]:
             WHERE company_name IS NOT NULL
             GROUP BY 1 ORDER BY 2 DESC LIMIT %s""", (limit * 3,))
         rows = cur.fetchall()
-    return [r["company_name"] for r in rows if not AGENCY_RE.search(r["company_name"])][:limit]
+    return [r["company_name"] for r in rows if not is_denied(r["company_name"])][:limit]
 
 
 # --------------------------------------------------------------------- manual
