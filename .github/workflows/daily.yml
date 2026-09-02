@@ -135,13 +135,27 @@ jobs:
         if: ${{ !inputs.skip_enrichment }}
         timeout-minutes: 40
         continue-on-error: true          # a scoring failure must not block the refresh
+        # Two passes, because the two halves of the board are worth different
+        # amounts. Intern and entry roles are the ones actually applied to, and
+        # their hard call - visa eligibility on a posting that never states its
+        # position - is where Opus earns its price. Everything else is
+        # structured classification, which Haiku does at a quarter the cost
+        # ($0.0042 a role against $0.0163, both measured).
+        #
         # --linkable and --relevant keep the spend on roles the site can
-        # actually publish. Without them the run pays for aggregator-sourced
-        # postings that are never shown, and for "entry" titles like Consumer
-        # Sales Associate that a data profile will never match.
+        # actually publish. Without them the run pays for aggregator postings
+        # that are never shown, and for "entry" titles like Consumer Sales
+        # Associate that a data profile will never match.
+        #
+        # The limits are a daily cost ceiling, not a target: roughly $0.80 for
+        # the first pass and $1.70 for the second, and they only bind on a day
+        # with that much genuinely new work. Scoring is incremental, so a
+        # posting is charged for once unless its description changes.
         run: |
           PYTHONPATH=ai_layer python ai_layer/enrich.py \
-            --seniority intern entry --linkable --relevant --limit 150
+            --seniority intern entry --linkable --relevant --limit 50
+          PYTHONPATH=ai_layer python ai_layer/enrich.py \
+            --model claude-haiku-4-5-20251001 --linkable --relevant --limit 400
 
       - name: Refresh marts
         working-directory: dbt_signal
