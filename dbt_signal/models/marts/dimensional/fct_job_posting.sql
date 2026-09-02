@@ -2,7 +2,24 @@
   config(
     materialized='incremental',
     unique_key='posting_key',
-    incremental_strategy='delete+insert'
+    incremental_strategy='delete+insert',
+    post_hook="""
+      {% if is_incremental() %}
+      -- Remove facts whose posting no longer exists upstream.
+      --
+      -- delete+insert only deletes keys present in the INCOMING batch, so a
+      -- posting that disappears from the source - an aggregator purged, a
+      -- company renamed, a row deleted - leaves its fact row behind forever.
+      -- Two such orphans (WorkOS, CAPITAL ONE) failed the referential
+      -- integrity test against dim_company, which is rebuilt in full each run
+      -- and so had already forgotten them. The fact table has to forget too.
+      delete from {{ this }} f
+      where not exists (
+          select 1 from {{ ref('stg_jobs') }} s
+          where s.source = f.source and s.job_id = f.job_id
+      )
+      {% endif %}
+    """
   )
 }}
 
