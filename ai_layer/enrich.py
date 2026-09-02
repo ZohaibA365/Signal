@@ -240,6 +240,28 @@ ON CONFLICT (source, job_id, profile) DO UPDATE SET
 """
 
 
+def flush(results: list) -> int:
+    """
+    Write a batch on a connection opened just for it.
+
+    Scoring holds no connection between writes. A run of a few hundred roles
+    takes long enough that Neon - being serverless - closes an idle one
+    underneath it, and a 176-role run died on exactly that after paying for 80
+    assessments. Those 80 survived only because writes are batched; the
+    connection now lives no longer than a single batch.
+    """
+    if not results:
+        return 0
+    conn = connect()
+    try:
+        with conn, conn.cursor() as cur:
+            execute_values(cur, UPSERT, [r[:13] + ("NOW()",) for r in results],
+                           page_size=100)
+        return len(results)
+    finally:
+        conn.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Score postings with Claude")
     ap.add_argument("--limit", type=int, help="max postings to score this run")
@@ -267,73 +289,69 @@ def main() -> None:
     # hosted warehouse - and in CI they are not set at all, so this step
     # dialled a localhost that does not exist there and failed every run.
     conn = connect()
+    try:
+        with conn.cursor() as cur:
+            rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
+                                    args.table, ACTIVE_PROFILE, args.min_salary,
+                                    args.linkable, args.relevant)
+    finally:
+        conn.close()
 
-    with conn, conn.cursor() as cur:
-        rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
-                                args.table, ACTIVE_PROFILE, args.min_salary,
-                                args.linkable, args.relevant)
-        log.info("%s roles to score with %s [profile=%s, table=%s]",
-                 len(rows), MODEL, ACTIVE_PROFILE, args.table)
-        if not rows:
-            log.info("Nothing to do - everything current is already scored.")
-            return
+    log.info("%s roles to score with %s [profile=%s, table=%s]",
+             len(rows), MODEL, ACTIVE_PROFILE, args.table)
+    if not rows:
+        log.info("Nothing to do - everything current is already scored.")
+        return
 
-        results, written = [], 0
-        consecutive_failures = 0
-        FLUSH_EVERY = 20
-        # Opus 5 list price, plus the 0.1x rate on cache reads.
-        RATE_IN, RATE_CACHE_READ, RATE_OUT = 5/1e6, 0.5/1e6, 25/1e6
-        cost = 0.0
-        for i, row in enumerate(rows, 1):
-            try:
-                a, usage = assess(client, row)
-                consecutive_failures = 0
-            except anthropic.APIStatusError as exc:
-                consecutive_failures += 1
-                # Log the actual message, not just the status. A bare "API
-                # error 400" is useless: billing exhaustion, a malformed
-                # request and an unsupported parameter all look identical.
-                detail = getattr(exc, "message", None) or str(exc)
-                log.error("  [%s/%s] %s - HTTP %s: %s",
-                          i, len(rows), row[3][:40], exc.status_code, detail[:200])
+    results, written = [], 0
+    consecutive_failures = 0
+    FLUSH_EVERY = 20
+    # Opus 5 list price, plus the 0.1x rate on cache reads.
+    RATE_IN, RATE_CACHE_READ, RATE_OUT = 5/1e6, 0.5/1e6, 25/1e6
+    cost = 0.0
+    for i, row in enumerate(rows, 1):
+        try:
+            a, usage = assess(client, row)
+            consecutive_failures = 0
+        except anthropic.APIStatusError as exc:
+            consecutive_failures += 1
+            # Log the actual message, not just the status. A bare "API
+            # error 400" is useless: billing exhaustion, a malformed
+            # request and an unsupported parameter all look identical.
+            detail = getattr(exc, "message", None) or str(exc)
+            log.error("  [%s/%s] %s - HTTP %s: %s",
+                      i, len(rows), row[3][:40], exc.status_code, detail[:200])
 
-                # 4xx other than rate limiting will not fix itself by trying
-                # the next row. Exhausted credit produced 352 identical
-                # failures over ten minutes before this guard existed.
-                if exc.status_code in (400, 401, 403) and consecutive_failures >= 3:
-                    log.error("Aborting: %s consecutive HTTP %s failures. "
-                              "This is an account or request problem, not bad data. "
-                              "Rows scored so far are already saved.",
-                              consecutive_failures, exc.status_code)
-                    break
-                continue
+            # 4xx other than rate limiting will not fix itself by trying
+            # the next row. Exhausted credit produced 352 identical
+            # failures over ten minutes before this guard existed.
+            if exc.status_code in (400, 401, 403) and consecutive_failures >= 3:
+                log.error("Aborting: %s consecutive HTTP %s failures. "
+                          "This is an account or request problem, not bad data. "
+                          "Rows scored so far are already saved.",
+                          consecutive_failures, exc.status_code)
+                break
+            continue
 
-            results.append((
-                row[0], row[1], a.eligibility, a.eligibility_reason, a.sponsorship_signal,
-                a.visa_reasoning, a.fit_score, a.fit_reasoning, a.tech_stack, a.concerns,
-                MODEL, _hash(row[8]), ACTIVE_PROFILE, None,
-            ))
-            cost += (usage.input_tokens * RATE_IN
-                     + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
-                     + (usage.cache_creation_input_tokens or 0) * RATE_IN * 1.25
-                     + usage.output_tokens * RATE_OUT)
-            log.info("  [%s/%s] %-3s %-9s %s @ %s", i, len(rows), a.fit_score,
-                     a.eligibility, (row[3] or "")[:44], (row[2] or "")[:22])
+        results.append((
+            row[0], row[1], a.eligibility, a.eligibility_reason, a.sponsorship_signal,
+            a.visa_reasoning, a.fit_score, a.fit_reasoning, a.tech_stack, a.concerns,
+            MODEL, _hash(row[8]), ACTIVE_PROFILE, None,
+        ))
+        cost += (usage.input_tokens * RATE_IN
+                 + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
+                 + (usage.cache_creation_input_tokens or 0) * RATE_IN * 1.25
+                 + usage.output_tokens * RATE_OUT)
+        log.info("  [%s/%s] %-3s %-9s %s @ %s", i, len(rows), a.fit_score,
+                 a.eligibility, (row[3] or "")[:44], (row[2] or "")[:22])
 
-            # Flush periodically rather than once at the end. A long run that
-            # dies at role 150 would otherwise discard 150 paid-for API calls.
-            if len(results) >= FLUSH_EVERY:
-                execute_values(cur, UPSERT, [r[:13] + ("NOW()",) for r in results], page_size=100)
-                conn.commit()
-                written += len(results)
-                results = []
+        # Flush periodically rather than once at the end. A long run that
+        # dies at role 150 would otherwise discard 150 paid-for API calls.
+        if len(results) >= FLUSH_EVERY:
+            written += flush(results)
+            results = []
+    written += flush(results)
 
-        if results:
-            execute_values(cur, UPSERT, [r[:13] + ("NOW()",) for r in results], page_size=100)
-            conn.commit()
-            written += len(results)
-
-    conn.close()
     log.info("Scored %s postings. Cost $%.3f ($%.4f each).",
              written, cost, cost / max(written, 1))
 

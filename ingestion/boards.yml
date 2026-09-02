@@ -54,3 +54,35 @@ companies:
       No third-party board, so without a bespoke adapter Amazon's postings can
       only come from an aggregator - an unclickable link. Hires interns at a
       scale that earns the exception.
+
+  Highmark Health:
+    ats: workday
+    tenant: highmarkhealth
+    host: wd1
+    site: highmark
+
+  GE Aerospace:
+    ats: workday
+    tenant: geaerospace
+    host: wd5
+    site: GE_ExternalSite
+
+  Medtronic:
+    ats: workday
+    tenant: medtronic
+    host: wd1
+    site: MedtronicCareers
+
+  Humana:
+    ats: workday
+    tenant: humana
+    host: wd5
+    site: Humana_External_Career_Site
+
+  Oracle:
+    ats: oraclecloud
+    host: eeho.fa.us2.oraclecloud.com
+    site: CX_1
+    note: >
+      Oracle Cloud Recruiting. The pod host is opaque and no more guessable
+      than a Workday tenant, so it is read off the real careers URL.
