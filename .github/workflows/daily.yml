@@ -40,6 +40,11 @@ jobs:
       AWS_REGION: us-east-1
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Which candidate profile roles are scored against. profile.py defaults
+      # to "cobol", so leaving this unset meant every daily score was computed
+      # for a mainframe programmer seeking $80k+ rather than a student looking
+      # for a Winter 2027 internship - a silently wrong answer, not an error.
+      SIGNAL_PROFILE: student
       DO_NOT_TRACK: "1"
 
     steps:
@@ -130,7 +135,13 @@ jobs:
         if: ${{ !inputs.skip_enrichment }}
         timeout-minutes: 40
         continue-on-error: true          # a scoring failure must not block the refresh
-        run: PYTHONPATH=ai_layer python ai_layer/enrich.py --seniority intern entry --limit 150
+        # --linkable and --relevant keep the spend on roles the site can
+        # actually publish. Without them the run pays for aggregator-sourced
+        # postings that are never shown, and for "entry" titles like Consumer
+        # Sales Associate that a data profile will never match.
+        run: |
+          PYTHONPATH=ai_layer python ai_layer/enrich.py \
+            --seniority intern entry --linkable --relevant --limit 150
 
       - name: Refresh marts
         working-directory: dbt_signal

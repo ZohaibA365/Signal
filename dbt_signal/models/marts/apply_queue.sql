@@ -20,7 +20,18 @@ with opportunities as (
 
 enrichment as (
 
+    /*
+      One profile only. A score is meaningless without the profile it was made
+      against - the same Mainframe COBOL Engineer posting scores 82 for a
+      mainframe programmer and near zero for a student after a data
+      internship. job_enrichment holds both, and this model joined all of it,
+      so 584 mainframe roles carried fit scores in the 80s on a site built for
+      the student profile.
+
+      Overridable per run: dbt build --vars 'signal_profile: cobol'.
+    */
     select * from {{ source('signal_ai', 'job_enrichment') }}
+    where profile = '{{ var("signal_profile", "student") }}'
 
 ),
 
