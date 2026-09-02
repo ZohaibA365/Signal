@@ -194,18 +194,40 @@ def build(skip_pages: bool = False) -> None:
             prefixes.append(head)
         return prefixes.index(head), u[len(head):]
 
+    # Categorical fields are dictionary-encoded: company, state, seniority,
+    # eligibility, sponsorship and technology are a few hundred distinct
+    # strings repeated across twelve thousand rows. Storing an index instead
+    # of the string cuts the payload the browser has to parse and hold, which
+    # matters more than the transfer size - gzip already collapses the
+    # repetition on the wire, but the parsed objects live in memory on a
+    # phone.
+    dicts: dict[str, list[str]] = {k: [] for k in ("c", "s", "l", "e", "p", "k")}
+    index: dict[str, dict[str, int]] = {k: {} for k in dicts}
+
+    def code(field: str, value):
+        """Index for a value, assigning one on first sight. None stays None."""
+        if value is None or value == "":
+            return None
+        table, seen = dicts[field], index[field]
+        if value not in seen:
+            seen[value] = len(table)
+            table.append(value)
+        return seen[value]
+
     rows_out = []
     for r in search_rows:
         pi, path = split_url(r["link_url"])
         rows_out.append({
-            "t": r["job_title"], "c": r["company_name"], "s": r["location_state"],
-            "n": r["country"], "l": r["seniority"], "d": r["days_since_posted"],
+            "t": r["job_title"], "c": code("c", r["company_name"]),
+            "s": code("s", r["location_state"]),
+            "n": r["country"], "l": code("l", r["seniority"]),
+            "d": r["days_since_posted"],
             "w": int(r["salary_min_reported"]) if r["salary_min_reported"] else None,
-            "h": pi, "u": path, "f": r["fit_score"], "e": r["eligibility"],
-            "p": r["sponsorship_status"], "r": 1 if r["is_remote"] else 0,
-            "k": (r["techs"] or "").split(",") if r["techs"] else [],
+            "h": pi, "u": path, "f": r["fit_score"], "e": code("e", r["eligibility"]),
+            "p": code("p", r["sponsorship_status"]), "r": 1 if r["is_remote"] else 0,
+            "k": [code("k", t) for t in (r["techs"] or "").split(",") if t],
         })
-    payload = {"prefixes": prefixes, "rows": rows_out}
+    payload = {"prefixes": prefixes, "dicts": dicts, "rows": rows_out}
 
     (DIST / "data").mkdir(exist_ok=True)
     raw = json.dumps(payload, separators=(",", ":")).encode()

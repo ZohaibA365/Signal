@@ -42,6 +42,26 @@
   };
   var state = { maxDays: 0, paidOnly: false, states: [] };
 
+  /* The payload dictionary-encodes the repeated categorical fields. Decoding
+     once on load keeps every filter comparing plain strings, which is what
+     they did before - doing it per comparison would move the cost into the
+     keystroke path, where it is felt. */
+  function decode(p) {
+    var d = p.dicts || {}, rows = p.rows || [];
+    var single = ["c", "s", "l", "e", "p"];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      for (var j = 0; j < single.length; j++) {
+        var f = single[j], t = d[f];
+        r[f] = (t && r[f] != null) ? t[r[f]] : null;
+      }
+      if (d.k && r.k) {
+        for (var m = 0; m < r.k.length; m++) r.k[m] = d.k[r.k[m]];
+      }
+    }
+    return rows;
+  }
+
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -283,7 +303,7 @@
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(function (p) {
       PREFIX = p.prefixes || [];
-      DATA = p.rows || [];
+      DATA = decode(p);
       readUrl();
       fillStates();
       drawPicked();
