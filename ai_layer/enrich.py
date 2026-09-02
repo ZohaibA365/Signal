@@ -26,6 +26,8 @@ import hashlib
 import logging
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from profile import ACTIVE as ACTIVE_PROFILE
 from profile import as_prompt_context
 
@@ -296,6 +298,8 @@ def main() -> None:
                     help="only postings with a working employer link (what the site shows)")
     ap.add_argument("--relevant", action="store_true",
                     help="only titles plausibly in scope for this profile")
+    ap.add_argument("--workers", type=int, default=8,
+                    help="concurrent scoring requests")
     ap.add_argument("--model", default=MODEL, choices=sorted(RATES),
                     help="scoring model; Haiku is ~5x cheaper for bulk classification")
     ap.add_argument("--table", default="ranked_opportunities",
@@ -332,51 +336,72 @@ def main() -> None:
 
     results, written = [], 0
     consecutive_failures = 0
-    FLUSH_EVERY = 20
-    # Opus 5 list price, plus the 0.1x rate on cache reads.
+    FLUSH_EVERY = 40
     RATE_IN, RATE_CACHE_READ, RATE_OUT = RATES.get(args.model, RATES[MODEL])
     cost = 0.0
-    for i, row in enumerate(rows, 1):
+    lock = threading.Lock()
+    stop = threading.Event()
+
+    def score_one(idx_row):
+        """One assessment. Runs on a worker; all shared state is under lock."""
+        nonlocal consecutive_failures, cost, written, results
+        i, row = idx_row
+        if stop.is_set():
+            return
         try:
             a, usage = assess(client, row, args.model)
-            consecutive_failures = 0
         except anthropic.APIStatusError as exc:
-            consecutive_failures += 1
-            # Log the actual message, not just the status. A bare "API
-            # error 400" is useless: billing exhaustion, a malformed
-            # request and an unsupported parameter all look identical.
+            # Log the actual message, not just the status. A bare "API error
+            # 400" is useless: billing exhaustion, a malformed request and an
+            # unsupported parameter all look identical.
             detail = getattr(exc, "message", None) or str(exc)
-            log.error("  [%s/%s] %s - HTTP %s: %s",
-                      i, len(rows), row[3][:40], exc.status_code, detail[:200])
+            with lock:
+                consecutive_failures += 1
+                log.error("  [%s/%s] %s - HTTP %s: %s",
+                          i, len(rows), (row[3] or "")[:40], exc.status_code,
+                          detail[:200])
+                # 4xx other than rate limiting will not fix itself on the next
+                # row. Exhausted credit produced 352 identical failures over
+                # ten minutes before this guard existed.
+                if exc.status_code in (400, 401, 403) and consecutive_failures >= 3:
+                    log.error("Aborting: %s consecutive HTTP %s failures. This is "
+                              "an account or request problem, not bad data. Rows "
+                              "scored so far are already saved.",
+                              consecutive_failures, exc.status_code)
+                    stop.set()
+            return
+        except Exception as exc:
+            with lock:
+                log.error("  [%s/%s] %s - %s", i, len(rows),
+                          (row[3] or "")[:40], type(exc).__name__)
+            return
 
-            # 4xx other than rate limiting will not fix itself by trying
-            # the next row. Exhausted credit produced 352 identical
-            # failures over ten minutes before this guard existed.
-            if exc.status_code in (400, 401, 403) and consecutive_failures >= 3:
-                log.error("Aborting: %s consecutive HTTP %s failures. "
-                          "This is an account or request problem, not bad data. "
-                          "Rows scored so far are already saved.",
-                          consecutive_failures, exc.status_code)
-                break
-            continue
+        with lock:
+            consecutive_failures = 0
+            results.append((
+                row[0], row[1], a.eligibility, a.eligibility_reason,
+                a.sponsorship_signal, a.visa_reasoning, a.fit_score,
+                a.fit_reasoning, a.tech_stack, a.concerns,
+                args.model, _hash(row[8]), ACTIVE_PROFILE, None,
+            ))
+            cost += (usage.input_tokens * RATE_IN
+                     + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
+                     + (usage.cache_creation_input_tokens or 0) * RATE_IN * 1.25
+                     + usage.output_tokens * RATE_OUT)
+            log.info("  [%s/%s] %-3s %-9s %s @ %s", i, len(rows), a.fit_score,
+                     a.eligibility, (row[3] or "")[:44], (row[2] or "")[:22])
+            # Flush periodically rather than once at the end. A long run that
+            # dies at role 150 would otherwise discard 150 paid-for API calls.
+            if len(results) >= FLUSH_EVERY:
+                batch, results = results, []
+                written += flush(batch)
 
-        results.append((
-            row[0], row[1], a.eligibility, a.eligibility_reason, a.sponsorship_signal,
-            a.visa_reasoning, a.fit_score, a.fit_reasoning, a.tech_stack, a.concerns,
-            args.model, _hash(row[8]), ACTIVE_PROFILE, None,
-        ))
-        cost += (usage.input_tokens * RATE_IN
-                 + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
-                 + (usage.cache_creation_input_tokens or 0) * RATE_IN * 1.25
-                 + usage.output_tokens * RATE_OUT)
-        log.info("  [%s/%s] %-3s %-9s %s @ %s", i, len(rows), a.fit_score,
-                 a.eligibility, (row[3] or "")[:44], (row[2] or "")[:22])
+    # Scored concurrently. Serially this ran at roughly six roles a minute -
+    # seventeen hours for the board, which no run survives. The work is
+    # entirely network-bound, so workers cost nothing but politeness.
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        list(ex.map(score_one, enumerate(rows, 1)))
 
-        # Flush periodically rather than once at the end. A long run that
-        # dies at role 150 would otherwise discard 150 paid-for API calls.
-        if len(results) >= FLUSH_EVERY:
-            written += flush(results)
-            results = []
     written += flush(results)
 
     log.info("Scored %s postings. Cost $%.3f ($%.4f each).",
