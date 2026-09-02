@@ -58,7 +58,7 @@ RELEVANT_RE = re.compile(
     r"student|apprentice|python|sql|cloud|devops|sre|security",
     re.I)
 
-NEEDS_DETAIL = {"workday", "smartrecruiters"}
+NEEDS_DETAIL = {"workday", "smartrecruiters", "oraclecloud"}
 
 
 def resolved_boards(conn, only: list[str] | None) -> list[dict]:
@@ -129,7 +129,21 @@ def _smartrecruiters_detail(coords: dict, j: dict) -> dict | None:
                 for k in ("companyDescription", "jobDescription", "qualifications")))}
 
 
-DETAIL_FN = {"workday": _workday_detail, "smartrecruiters": _smartrecruiters_detail}
+def _oraclecloud_detail(coords: dict, j: dict) -> dict | None:
+    d = get_json("https://{host}/hcmRestApi/resources/latest/"
+                 "recruitingCEJobRequisitionDetails".format(host=coords["host"]),
+                 params={"expand": "all", "onlyData": "true",
+                         "finder": f"ById;Id={j['job_id']},"
+                                   f"siteNumber={coords.get('site', 'CX_1')}"})
+    item = ((d or {}).get("items") or [{}])[0]
+    return {"job_id": j["job_id"],
+            "description": clean(item.get("ExternalDescriptionStr")),
+            "location": item.get("PrimaryLocation")}
+
+
+DETAIL_FN = {"workday": _workday_detail,
+             "smartrecruiters": _smartrecruiters_detail,
+             "oraclecloud": _oraclecloud_detail}
 
 
 def _detail_only(ats: str, coords: dict, wanted: list[dict],

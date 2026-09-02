@@ -46,6 +46,23 @@ log = logging.getLogger("enrich")
 
 MODEL = "claude-opus-5"
 
+# Price per token by model, so a run reports what it actually cost rather than
+# what Opus would have cost. Opus reasons better on the genuinely hard calls -
+# visa eligibility on a posting that never states it - which is why the roles
+# this profile would actually apply to are still scored with it. The rest of
+# the board is structured classification, where Haiku is ~5x cheaper for
+# little loss: scoring every linkable relevant role is ~$25 on Haiku against
+# ~$123 on Opus.
+# Which models accept the 4.6+ reasoning controls (adaptive thinking and the
+# effort parameter). Haiku 4.5 predates both.
+THINKS = {"claude-opus-5": True, "claude-haiku-4-5-20251001": False}
+
+RATES = {
+    # model: (input, cache_read, output) per token
+    "claude-opus-5":            (5/1e6, 0.5/1e6, 25/1e6),
+    "claude-haiku-4-5-20251001": (1/1e6, 0.1/1e6,  5/1e6),
+}
+
 
 class Assessment(BaseModel):
     """The structured verdict Claude returns for one posting."""
@@ -181,7 +198,7 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
     return cur.fetchall()
 
 
-def assess(client: anthropic.Anthropic, row):
+def assess(client: anthropic.Anthropic, row, model: str = MODEL):
     (_src, _jid, company, title, location, state, posted, seniority,
      description, salary_min, salary_predicted) = row
 
@@ -203,7 +220,7 @@ Description (truncated by the source at ~500 characters):
 {description}"""
 
     response = client.messages.parse(
-        model=MODEL,
+        model=model,
         max_tokens=2000,
         system=[{
             "type": "text",
@@ -213,8 +230,16 @@ Description (truncated by the source at ~500 characters):
         }],
         messages=[{"role": "user", "content": posting}],
         output_format=Assessment,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "low"},
+        # Adaptive thinking is a 4.6+ feature and Haiku 4.5 rejects it with a
+        # 400 rather than ignoring it, so it is passed only where supported.
+        # Haiku is doing structured classification here, which is the case
+        # that needs it least.
+        # Adaptive thinking and the effort parameter are both 4.6+ features
+        # that Haiku 4.5 rejects with a 400 rather than ignoring, so they are
+        # sent only where supported. Haiku is doing structured classification
+        # here, which is the case that needs them least.
+        **({"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
+           if THINKS.get(model, True) else {}),
     )
     return response.parsed_output, response.usage
 
@@ -271,6 +296,8 @@ def main() -> None:
                     help="only postings with a working employer link (what the site shows)")
     ap.add_argument("--relevant", action="store_true",
                     help="only titles plausibly in scope for this profile")
+    ap.add_argument("--model", default=MODEL, choices=sorted(RATES),
+                    help="scoring model; Haiku is ~5x cheaper for bulk classification")
     ap.add_argument("--table", default="ranked_opportunities",
                     help="marts table or view to score from")
     ap.add_argument("--min-salary", type=int,
@@ -298,7 +325,7 @@ def main() -> None:
         conn.close()
 
     log.info("%s roles to score with %s [profile=%s, table=%s]",
-             len(rows), MODEL, ACTIVE_PROFILE, args.table)
+             len(rows), args.model, ACTIVE_PROFILE, args.table)
     if not rows:
         log.info("Nothing to do - everything current is already scored.")
         return
@@ -307,11 +334,11 @@ def main() -> None:
     consecutive_failures = 0
     FLUSH_EVERY = 20
     # Opus 5 list price, plus the 0.1x rate on cache reads.
-    RATE_IN, RATE_CACHE_READ, RATE_OUT = 5/1e6, 0.5/1e6, 25/1e6
+    RATE_IN, RATE_CACHE_READ, RATE_OUT = RATES.get(args.model, RATES[MODEL])
     cost = 0.0
     for i, row in enumerate(rows, 1):
         try:
-            a, usage = assess(client, row)
+            a, usage = assess(client, row, args.model)
             consecutive_failures = 0
         except anthropic.APIStatusError as exc:
             consecutive_failures += 1
@@ -336,7 +363,7 @@ def main() -> None:
         results.append((
             row[0], row[1], a.eligibility, a.eligibility_reason, a.sponsorship_signal,
             a.visa_reasoning, a.fit_score, a.fit_reasoning, a.tech_stack, a.concerns,
-            MODEL, _hash(row[8]), ACTIVE_PROFILE, None,
+            args.model, _hash(row[8]), ACTIVE_PROFILE, None,
         ))
         cost += (usage.input_tokens * RATE_IN
                  + (usage.cache_read_input_tokens or 0) * RATE_CACHE_READ
