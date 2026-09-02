@@ -137,6 +137,61 @@ select
       Only those are linkable, so only those reach the job list; the rest
       still count toward market statistics, where no link is involved.
     */
+    /*
+      Does THIS posting refuse sponsorship, whatever the company has done
+      historically?
+
+      The visa label otherwise comes from Department of Labor filings, which
+      are a fact about the employer and not about the role. A posting can say
+      the opposite and hundreds here do: General Motors has 1,141 filings and
+      carries a "sponsors" tag, while 33 GM postings state that GM does not
+      provide immigration-related sponsorship for the role. Acting on the
+      company-level label there means applying for a job that rejects you on
+      submission.
+
+      Per-posting rather than per-company for a demonstrable reason: Capital
+      One appears on both sides, some postings saying "will not sponsor a new
+      applicant" and others "will consider sponsoring a new qualified
+      applicant".
+
+      A refusal wins over any offer language in the same posting. The first
+      version of this tried to let an offer cancel a refusal and got GM
+      exactly backwards: "DO NOT APPLY IF YOU WILL NEED SPONSORSHIP" contains
+      "will ... sponsorship", which a loose pattern reads as an offer. Offers
+      are therefore matched only where the employer is plainly the subject,
+      and they never override an explicit refusal - a posting saying "we
+      sponsor visas, but not for this role" is a refusal for this role.
+
+      No backslashes in the patterns: escapes do not survive dbt templating,
+      and an earlier macro reached Snowflake as an unbalanced paren and
+      Postgres as a literal "s". regexp_like is used over ~* for the same
+      portability reason.
+    */
+    regexp_like(coalesce(description_raw, ''),
+                '(will not|does not|do not|cannot|can not|are not able to|'
+                'unable to|not be able to|not offer|not provide)'
+                '[^.]{0,80}sponsor', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'sponsorship[^.]{0,60}(is not|not available|will not be|'
+                'cannot be|is unavailable)', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'does not now or in the future require sponsorship', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'do not apply[^.]{0,80}sponsor', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'without the need for[^.]{0,40}sponsor', 'i')
+                                                          as refuses_sponsorship,
+
+    -- Only where the employer is plainly the one offering. Deliberately
+    -- narrow: this exists to describe a posting, never to cancel a refusal.
+    regexp_like(coalesce(description_raw, ''),
+                '(we|company) (do|does|will|can|are able to|are willing to|'
+                'are happy to)[^.]{0,20}sponsor', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'sponsorship (is|will be) available', 'i')
+    or regexp_like(coalesce(description_raw, ''),
+                'will consider sponsor', 'i')             as offers_sponsorship,
+
     case when source = 'company_board' then redirect_url end   as link_url,
     case when source = 'company_board' then 'direct'
          else 'aggregator' end                                 as link_tier,

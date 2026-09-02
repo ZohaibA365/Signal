@@ -135,7 +135,7 @@ SEARCH_ROWS = """
 SELECT
     q.job_id, q.company_name, q.job_title, q.location_state, q.country,
     q.seniority, q.days_since_posted, q.salary_min_reported, q.link_url,
-    q.fit_score, q.eligibility, q.sponsorship_status, q.sponsor_filings,
+    q.fit_score, q.eligibility, q.posting_sponsorship, q.sponsor_filings,
     -- Remote is not a state, but it is how a lot of these roles are actually
     -- located, and a state filter with no remote option hides them all.
     (q.location_raw ILIKE '%remote%') AS is_remote,
@@ -158,7 +158,7 @@ WHERE q.link_tier = 'direct'
   AND (q.days_since_posted IS NULL OR q.days_since_posted <= 400)
 GROUP BY q.job_id, q.company_name, q.job_title, q.location_state, q.country,
          q.seniority, q.days_since_posted, q.salary_min_reported, q.link_url,
-         q.fit_score, q.eligibility, q.sponsorship_status, q.sponsor_filings,
+         q.fit_score, q.eligibility, q.posting_sponsorship, q.sponsor_filings,
          q.location_raw
 ORDER BY q.days_since_posted
 """

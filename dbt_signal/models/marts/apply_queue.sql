@@ -58,6 +58,8 @@ joined as (
         o.salary_min_reported,
         o.redirect_url,
         o.link_url,
+        o.refuses_sponsorship,
+        o.offers_sponsorship,
         o.link_tier,
         o.description_raw,
 
@@ -96,11 +98,33 @@ final as (
 
     select
         *,
+
+        /*
+          What this POSTING says about sponsorship, which outranks what the
+          employer has filed historically.
+
+          sponsorship_status is derived from Department of Labor filings and
+          is a fact about the company. It is not a fact about the role.
+          General Motors has 1,141 filings and would carry a "sponsors" tag on
+          33 postings that state GM does not provide immigration-related
+          sponsorship for the role. Sending someone to apply on the strength
+          of the company label there wastes the application.
+
+          Filing history still answers the question the posting is silent on,
+          which is most of them - so it remains the fallback, not the
+          headline.
+        */
         case
-            -- A citizenship or clearance requirement still overrides filing
-            -- history: an employer can sponsor widely and still have roles
-            -- that are closed to non-citizens.
-            when eligibility = 'blocked'  then 'skip'
+            when refuses_sponsorship then 'no_sponsorship_this_role'
+            when offers_sponsorship  then 'offered_in_posting'
+            else sponsorship_status
+        end as posting_sponsorship,
+
+        case
+            -- The posting's own refusal is disqualifying regardless of what
+            -- the employer has done for other roles.
+            when refuses_sponsorship     then 'skip'
+            when eligibility = 'blocked' then 'skip'
             when fit_score is null        then 'not yet scored'
             when fit_score >= 70          then 'apply now'
             when fit_score >= 45          then 'worth a look'

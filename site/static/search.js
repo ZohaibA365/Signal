@@ -110,12 +110,23 @@
     if (f.maxDays && r.d > f.maxDays) return false;
     if (f.paidOnly && !r.w) return false;
     if (f.salary && !(r.w && r.w >= f.salary)) return false;
-    if (f.sponsor === "verified" && r.p !== "frequent_sponsor" && r.p !== "has_sponsored") return false;
-    if (f.sponsor === "open" && r.e === "blocked") return false;
+    // A posting that refuses sponsorship never satisfies a sponsorship
+    // filter, whatever the employer has filed for other roles.
+    if (f.sponsor === "verified" &&
+        !(r.p === "frequent_sponsor" || r.p === "has_sponsored" ||
+          r.p === "offered_in_posting")) return false;
+    if (f.sponsor === "open" &&
+        (r.e === "blocked" || r.p === "no_sponsorship_this_role")) return false;
     return true;
   }
 
   function tag(r) {
+    // The posting's own words come first. An employer with a long filing
+    // history can still say it will not sponsor THIS role, and 377 roles here
+    // do - showing them a green "Sponsors" badge sends someone to apply for a
+    // job that rejects them on submission.
+    if (r.p === "no_sponsorship_this_role") return '<span class="tag no">No sponsorship</span>';
+    if (r.p === "offered_in_posting") return '<span class="tag ok">Sponsorship offered</span>';
     if (r.p === "frequent_sponsor") return '<span class="tag ok">Sponsors</span>';
     if (r.p === "has_sponsored") return '<span class="tag ok">Has sponsored</span>';
     if (r.e === "blocked") return '<span class="tag no">US citizens</span>';
