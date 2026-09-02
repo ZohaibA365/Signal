@@ -13,14 +13,25 @@ before anything that needs a registry entry.
 """
 from __future__ import annotations
 
-from . import amazon, ashby, greenhouse, lever, oraclecloud, smartrecruiters, workable, workday
+from . import (
+    amazon,
+    ashby,
+    greenhouse,
+    lever,
+    oraclecloud,
+    rippling,
+    smartrecruiters,
+    workable,
+    workday,
+)
 
 ADAPTERS = {m.NAME: m for m in
             (greenhouse, lever, ashby, smartrecruiters, workable, workday,
-             amazon, oraclecloud)}
+             amazon, oraclecloud, rippling)}
 
 # Systems whose coordinates are a single slug, so a sweep can guess them.
-GUESSABLE = ("greenhouse", "lever", "ashby", "smartrecruiters", "workable")
+GUESSABLE = ("greenhouse", "lever", "ashby", "smartrecruiters", "workable",
+             "rippling")
 
 
 def fetch(ats: str, **coords) -> list[dict]:
