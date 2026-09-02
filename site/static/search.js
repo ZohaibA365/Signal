@@ -26,7 +26,7 @@
 
   var PRESETS = {
     intern: function () { el.seniority.value = "intern"; },
-    sponsor: function () { el.sponsor.value = "verified"; },
+    sponsor: function () { el.sponsor.value = "stated"; },
     de: function () { el.q.value = "data engineer"; },
     fresh: function () { state.maxDays = 7; },
     paid: function () { state.paidOnly = true; },
@@ -110,28 +110,46 @@
     if (f.maxDays && r.d > f.maxDays) return false;
     if (f.paidOnly && !r.w) return false;
     if (f.salary && !(r.w && r.w >= f.salary)) return false;
-    // A posting that refuses sponsorship never satisfies a sponsorship
-    // filter, whatever the employer has filed for other roles.
-    if (f.sponsor === "verified" &&
-        !(r.p === "frequent_sponsor" || r.p === "has_sponsored" ||
-          r.p === "offered_in_posting")) return false;
+    // The filter matches the badge: only a posting that states sponsorship
+    // counts as offering it. Filing history describes the employer and is
+    // not a claim about this role, so it cannot satisfy this filter.
+    if (f.sponsor === "stated" && r.p !== "offered_in_posting") return false;
     if (f.sponsor === "open" &&
         (r.e === "blocked" || r.p === "no_sponsorship_this_role")) return false;
     return true;
   }
 
-  function tag(r) {
-    // The posting's own words come first. An employer with a long filing
-    // history can still say it will not sponsor THIS role, and 377 roles here
-    // do - showing them a green "Sponsors" badge sends someone to apply for a
-    // job that rejects them on submission.
-    if (r.p === "no_sponsorship_this_role") return '<span class="tag no">No sponsorship</span>';
-    if (r.p === "offered_in_posting") return '<span class="tag ok">Sponsorship offered</span>';
-    if (r.p === "frequent_sponsor") return '<span class="tag ok">Sponsors</span>';
-    if (r.p === "has_sponsored") return '<span class="tag ok">Has sponsored</span>';
-    if (r.e === "blocked") return '<span class="tag no">US citizens</span>';
-    if (r.l === "intern" || r.l === "entry") return '<span class="tag wa">' + esc(r.l) + "</span>";
-    return '<span class="tag na">' + esc(r.l || "—") + "</span>";
+  /* A row carries two independent facts: what level the role is, and what it
+     says about work authorisation. They were sharing one slot, so a GM
+     internship that requires citizenship showed "US citizens only" and the
+     word "internship" vanished from a search for internships. Level is always
+     shown; authorisation is shown only when there is evidence. */
+  function levelTag(r) {
+    if (r.l === "intern") return '<span class="tag wa">Internship</span>';
+    if (r.l === "entry") return '<span class="tag wa">Entry level</span>';
+    if (r.l) return '<span class="tag na">' + esc(r.l) + "</span>";
+    return "";
+  }
+
+  /* Work authorisation, in three states, and silence is one of them.
+
+     Only the posting's own words are evidence about the posting. An employer
+     having filed a thousand visas is a fact about the EMPLOYER, and saying
+     "Sponsors" on that basis claims something the posting never said - which
+     is how 377 roles came to show a green badge while their own text refused
+     sponsorship outright. Where the posting is silent, so is the badge; the
+     filing count still appears in the row as what it actually is.
+
+     A citizenship requirement outranks both: it closes the role to this
+     candidate whatever the sponsorship language says. */
+  function authTag(r) {
+    if (r.e === "blocked")
+      return '<span class="tag no">US citizens only</span>';
+    if (r.p === "no_sponsorship_this_role")
+      return '<span class="tag no">Does not sponsor</span>';
+    if (r.p === "offered_in_posting")
+      return '<span class="tag ok">Sponsors</span>';
+    return "";
   }
 
   // The host an "Apply" click actually lands on. Shown on every row because
@@ -155,12 +173,14 @@
     if (r.w) meta.push("$" + r.w.toLocaleString());
     var h = host(link);
     if (h) meta.push('<span class="host">' + esc(h) + "</span>");
+    // A fact about the employer, not a claim about this role.
+    if (r.v > 0) meta.push(r.v.toLocaleString() + " visas filed");
     var techs = r.k.length
       ? '<div class="k">' + r.k.slice(0, 7).map(function (t) { return "<span>" + esc(t) + "</span>"; }).join("") + "</div>"
       : "";
     return '<div class="jrow"><div><div class="t">' + title + "</div>" +
            '<div class="m">' + meta.join("<span>·</span>") + "</div>" + techs +
-           '</div><div class="right">' + tag(r) + "</div></div>";
+           '</div><div class="right">' + levelTag(r) + authTag(r) + "</div></div>";
   }
 
   /* The state list is built from the data rather than hard-coded, so it can

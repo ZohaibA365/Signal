@@ -224,7 +224,8 @@ def build(skip_pages: bool = False) -> None:
             "d": r["days_since_posted"],
             "w": int(r["salary_min_reported"]) if r["salary_min_reported"] else None,
             "h": pi, "u": path, "f": r["fit_score"], "e": code("e", r["eligibility"]),
-            "p": code("p", r["posting_sponsorship"]), "r": 1 if r["is_remote"] else 0,
+            "p": code("p", r["posting_sponsorship"]),
+            "v": r["sponsor_filings"] or 0, "r": 1 if r["is_remote"] else 0,
             "k": [code("k", t) for t in (r["techs"] or "").split(",") if t],
         })
     payload = {"prefixes": prefixes, "dicts": dicts, "rows": rows_out}
