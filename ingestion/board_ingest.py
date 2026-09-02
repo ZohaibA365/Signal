@@ -53,9 +53,20 @@ log = logging.getLogger("board_ingest")
 # broad: a false positive costs one request, a false negative loses a posting
 # from the scored set entirely.
 RELEVANT_RE = re.compile(
+    # Technical roles...
     r"data|analyt|engineer|develop|software|machine learning|\bml\b|\bai\b|scien|"
-    r"platform|infrastructure|backend|back-end|intern|co-?op|new grad|university|"
-    r"student|apprentice|python|sql|cloud|devops|sre|security",
+    r"platform|infrastructure|backend|back-end|python|sql|cloud|devops|sre|security|"
+    # ...and anything student-shaped, whatever the discipline. This site is
+    # used to find internships, so a finance or audit co-op is as wanted as a
+    # data one.
+    r"intern|co-?op|new grad|university|student|apprentice|campus|"
+    # Canadian employers often name the term instead of the word. RBC posts
+    # "2027 CAE, Winter Audit Planning & Reporting Analyst (4 months)" - a
+    # Winter 2027 co-op with neither "intern" nor "co-op" in the title, which
+    # is why only 25 of their 114 student postings were being kept.
+    r"20[0-9][0-9]\s*(winter|summer|fall|spring)|"
+    r"(winter|summer|fall|spring)\s*20[0-9][0-9]|"
+    r"\([0-9]{1,2}\s*months?\)|[0-9]{1,2}\s*month\s*(term|placement)",
     re.I)
 
 NEEDS_DETAIL = {"workday", "smartrecruiters", "oraclecloud"}

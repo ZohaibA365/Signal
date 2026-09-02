@@ -86,3 +86,38 @@ companies:
     note: >
       Oracle Cloud Recruiting. The pod host is opaque and no more guessable
       than a Workday tenant, so it is read off the real careers URL.
+
+  RBC:
+    ats: workday
+    tenant: rbc
+    host: wd3
+    site: RBCEARLYTALENT1
+    note: >
+      RBC runs a separate early-talent board. 114 postings, almost all Winter
+      2027 co-op terms in Toronto - the single densest source of Ontario
+      student roles found so far. Their general board is a different site.
+
+  TD Bank:
+    ats: workday
+    tenant: td
+    host: wd3
+    site: TD_Bank_Careers
+
+  BMO:
+    ats: workday
+    tenant: bmo
+    host: wd3
+    site: External
+    note: their Campus board holds 33; External is the superset at 914
+
+  CIBC:
+    ats: workday
+    tenant: cibc
+    host: wd3
+    site: Campus
+
+  Sun Life:
+    ats: workday
+    tenant: sunlife
+    host: wd3
+    site: Campus

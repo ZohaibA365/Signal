@@ -71,7 +71,26 @@ cleaned as (
         -- Order matters: "Senior Associate" must resolve to senior, not entry.
         -- \y is a word boundary, without which "Internal" matches "intern".
         case
-            when regexp_like(job_title, '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$', 'i') then 'intern'
+            -- "Student" and "New Grad" belong here, not in mid or entry.
+            -- Canadian employers rarely write "intern": the term is co-op, and
+            -- a title like "IS Data Engineering Student" was landing in mid,
+            -- so it never appeared in a search for internships - on a site
+            -- whose main use is finding them. Ordered before senior so that
+            -- "Senior Design Student" reads as a student role.
+            when regexp_like(job_title,
+                 '^(.*[^a-z])?(intern|interns|internship|interning|co.?op|'
+                 'new.grad|new.graduate|university.grad|campus|'
+                 'student|students|placement|trainee|apprentice)([^a-z].*)?$',
+                 'i') then 'intern'
+            -- Canadian employers frequently name the work term instead of
+            -- using the word. RBC posts "2027 CAE, Winter Audit Planning &
+            -- Reporting Analyst (4 months)" - a Winter 2027 co-op whose title
+            -- contains neither "intern" nor "co-op". A season with a year, or
+            -- an explicit month count, is the tell.
+            when regexp_like(job_title,
+                 '(winter|summer|fall|spring)[^a-z0-9]*20[0-9][0-9]|'
+                 '20[0-9][0-9][^a-z0-9]*(winter|summer|fall|spring)|'
+                 '[(][0-9]{1,2}[ -]*months?[)]', 'i') then 'intern'
             when regexp_like(job_title, '^(.*[^a-z])?(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)([^a-z].*)?$', 'i') then 'senior'
             when regexp_like(job_title, '^(.*[^a-z])?(new grad|graduate|entry.level|junior|jr|associate|apprentice)([^a-z].*)?$', 'i') then 'entry'
             else 'mid'

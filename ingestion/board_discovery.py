@@ -232,6 +232,80 @@ def targets_by_volume(conn, limit: int) -> list[str]:
 
 # --------------------------------------------------------------------- manual
 
+SR_SEARCH = "https://jobs.smartrecruiters.com/sr-jobs/search"
+
+# Keywords for the SmartRecruiters sweep. Broad on purpose: the point is to
+# enumerate employers, not to find particular jobs, so anything that surfaces
+# a different slice of the index is useful.
+SR_KEYWORDS = (
+    "intern", "co-op", "student", "graduate", "apprentice", "campus",
+    "data engineer", "software engineer", "analyst", "developer", "scientist",
+    "machine learning", "cloud", "security", "finance", "marketing",
+    "operations", "engineer", "manager", "designer", "product",
+)
+
+
+def discover_smartrecruiters(pages: int = 6) -> list[dict]:
+    """
+    Enumerate SmartRecruiters employers rather than guessing their slugs.
+
+    Their public job search returns company.identifier on every result, and
+    that identifier IS the board slug. So unlike every other system here,
+    employers can be discovered directly - no name guessing, no failed probes,
+    and no dependence on the company already appearing in our corpus. This is
+    the only ATS found that allows it.
+    """
+    from ats.base import get_json
+    found: dict[str, str] = {}
+    for kw in SR_KEYWORDS:
+        for page in range(pages):
+            d = get_json(SR_SEARCH, params={"keyword": kw, "offset": page * 100,
+                                            "limit": 100})
+            content = (d or {}).get("content") or []
+            if not content:
+                break
+            for job in content:
+                co = job.get("company") or {}
+                if co.get("identifier"):
+                    found[co["identifier"]] = co.get("name") or co["identifier"]
+        log.info("  %-20s cumulative employers: %d", kw, len(found))
+
+    entries = []
+    for slug, name in found.items():
+        if is_denied(name):
+            continue
+        entries.append({"company_name": name, "ats": "smartrecruiters",
+                        "coords": {"slug": slug}, "status": "resolved",
+                        "confidence": "enumerated", "discovered_via": "sr_search",
+                        "postings_seen": None,
+                        "note": "slug taken from the public job search, not guessed"})
+    return entries
+
+
+def dol_targets(conn, limit: int) -> list[str]:
+    """
+    Employers from the Department of Labor filings, largest sponsors first.
+
+    A second seed pool alongside the corpus. These are companies proven to
+    have sponsored visas, which is a stronger signal of an established US
+    hiring programme than simply appearing in an aggregator feed - and the
+    names are real legal entities rather than an aggregator's rendering.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT employer_name, sum(filings) f
+            FROM dol_employer_summary
+            WHERE employer_name IS NOT NULL
+            GROUP BY 1 ORDER BY f DESC LIMIT %s""", (limit * 3,))
+        rows = cur.fetchall()
+    out = []
+    for r in rows:
+        name = r["employer_name"] if isinstance(r, dict) else r[0]
+        if not is_denied(name):
+            out.append(name)
+    return out[:limit]
+
+
 def load_manual(conn) -> int:
     """
     Apply boards.yml - the hand-resolved entries.
@@ -295,6 +369,10 @@ def report(conn) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Resolve company career boards")
     ap.add_argument("--top", type=int, help="sweep the N largest employers")
+    ap.add_argument("--smartrecruiters", action="store_true",
+                    help="enumerate SmartRecruiters employers from their public search")
+    ap.add_argument("--dol", type=int,
+                    help="also sweep the N largest Department of Labor sponsors")
     ap.add_argument("--company", "--companies", nargs="+", dest="company",
                     help="resolve specific companies")
     ap.add_argument("--companies-file", help="file with one company name per line")
@@ -307,6 +385,11 @@ def main() -> None:
 
     conn = connect()
     try:
+        if args.smartrecruiters:
+            found = discover_smartrecruiters()
+            log.info("enumerated %d SmartRecruiters employers", len(found))
+            save(conn, found)
+
         if args.load_manual:
             log.info("applying %s", MANUAL_FILE.name)
             log.info("loaded %d manual entries", load_manual(conn))
@@ -314,6 +397,8 @@ def main() -> None:
         names: list[str] = target_names(args)
         if args.top:
             names += targets_by_volume(conn, args.top)
+        if args.dol:
+            names += dol_targets(conn, args.dol)
         if names:
             if not args.retry_failed:
                 seen = already_tried(conn)

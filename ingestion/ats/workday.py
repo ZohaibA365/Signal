@@ -93,6 +93,7 @@ def fetch(tenant: str, host: str, site: str, search: str = "",
     """
     out: list[dict] = []
     offset = 0
+    total = None
     for _ in range(MAX_PAGES):
         d = post_json(_api(tenant, host, site),
                       {"appliedFacets": {}, "limit": PAGE, "offset": offset,
@@ -102,6 +103,12 @@ def fetch(tenant: str, host: str, site: str, search: str = "",
         batch = d.get("jobPostings") or []
         if not batch:
             break
+        # The count comes back only on the FIRST page; later pages report
+        # total=0 while still returning results. Re-reading it each time made
+        # the loop stop after page two, silently truncating every Workday
+        # board to about 40 postings - RBC's 114 student roles came out as 40.
+        if total is None:
+            total = d.get("total") or 0
         for j in batch:
             path = j.get("externalPath") or ""
             # bulletFields carries the requisition id, which is stabler than
@@ -119,8 +126,9 @@ def fetch(tenant: str, host: str, site: str, search: str = "",
                 "_path": path,
             })
         offset += PAGE
-        total = d.get("total") or 0
-        if (limit and len(out) >= limit) or offset >= total:
+        # Stop on a short page rather than on the reported total, which is
+        # only trustworthy once.
+        if (limit and len(out) >= limit) or len(batch) < PAGE or offset >= (total or 0):
             break
         time.sleep(SLEEP)
 
