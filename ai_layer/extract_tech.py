@@ -64,6 +64,8 @@ def main() -> None:
     # NOT EXISTS filter would hand it back on every page forever; a keyset
     # moves past it.
     PAGE = 2000
+    log.info("matching against %s technologies, %s postings per page",
+             len(BY_SLUG), f"{PAGE:,}")
     last_source, last_job = "", ""
     rows_seen = 0
     pairs_written = 0
