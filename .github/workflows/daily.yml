@@ -103,13 +103,15 @@ jobs:
       # moved.
       - name: Ingest postings from career boards
         timeout-minutes: 45
-        # A bounded slice, stalest boards first, rather than the whole
-        # registry. It held 32 companies when this was written and holds
-        # 1,624; a full pass takes about 85 minutes and this step allows 45,
-        # so the run timed out here every morning and skipped the ten steps
-        # after it. 400 boards fits the budget with room, and the ordering
-        # means every board comes round within a few days.
-        run: python ingestion/board_ingest.py --max-boards 400
+        # Bounded by wall-clock time, not board count.
+        #
+        # Capping at 400 boards was the obvious fix and it still timed out,
+        # because a board count is not a bound on work: Bosch carries 4,803
+        # postings and TD Bank 1,659, and the systems charging a request per
+        # posting spend minutes on one company. 30 minutes leaves margin
+        # inside the 45 this step allows, and stalest-first ordering means
+        # every board still comes round.
+        run: python ingestion/board_ingest.py --max-seconds 1800
 
       # Newly seen employers become candidates for their own board. Capped so
       # the daily run stays bounded; failures are cached, so each day works

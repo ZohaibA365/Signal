@@ -31,6 +31,7 @@ import logging
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
@@ -219,6 +220,8 @@ def main() -> None:
     ap.add_argument("--companies-file", help="file with one company name per line")
     ap.add_argument("--max-boards", type=int,
                     help="fetch at most N boards, stalest first (for a bounded run)")
+    ap.add_argument("--max-seconds", type=int,
+                    help="stop starting new boards after this many seconds")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -235,8 +238,22 @@ def main() -> None:
     ingested_at = datetime.now(UTC).isoformat()
     total = 0
     done: list[str] = []
+    started = time.monotonic()
 
     for e in boards:
+        # A wall-clock deadline, because a board count is not a bound on work.
+        #
+        # Capping the run at 400 boards still timed out: boards differ by
+        # orders of magnitude - Bosch carries 4,803 postings and TD Bank
+        # 1,659, and the systems that charge a request per posting spend
+        # minutes on a single company. Only elapsed time bounds it.
+        #
+        # The check is before starting a board rather than during one, so a
+        # board is always finished and stamped rather than left half fetched.
+        if args.max_seconds and time.monotonic() - started > args.max_seconds:
+            log.info("stopping: %ds budget reached with %d of %d boards done",
+                     args.max_seconds, len(done), len(boards))
+            break
         name = e["company_name"]
         try:
             kept = fetch_board(e)
@@ -264,7 +281,11 @@ def main() -> None:
                 Body=json.dumps(doc, indent=2).encode(), ContentType="application/json")
 
     mark_ingested(done)
-    log.info("%s postings across %d boards", f"{total:,}", len(boards))
+    # Report boards actually fetched, not boards considered. A time-bounded
+    # run stops partway, and saying "across 1,627 boards" when ten were
+    # touched would misrepresent what the run covered.
+    log.info("%s postings across %d of %d boards",
+             f"{total:,}", len(done), len(boards))
 
 
 if __name__ == "__main__":
