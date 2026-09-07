@@ -50,67 +50,87 @@ def main() -> None:
     # directly targets the local container while dbt and the site read the
     # hosted warehouse - and in CI they are not set at all, so this step
     # dialled a localhost that does not exist there and failed every run.
-    # Read on one connection and close it before the matching starts.
+    # Paged with a keyset, not fetched in one go.
     #
-    # The matching loop runs for minutes over tens of thousands of postings,
-    # and Neon closes a connection left idle underneath it: a run over 31,000
-    # new postings did all the work and then lost it to "connection already
-    # closed" at the write. The same failure had already appeared in the
-    # discovery sweep and in scoring, for the same reason - a long job holding
-    # one connection across it.
-    conn = connect()
-    try:
-        with conn.cursor() as cur:
-            if args.rebuild:
-                cur.execute("TRUNCATE posting_technologies")
-                conn.commit()
-                log.info("Cleared existing matches (--rebuild)")
-
-            # Match the title as well as the description: the title often
-            # names the technology ("Snowflake Data Engineer") when the
-            # truncated description does not.
-            cur.execute("""
-                SELECT r.source, r.job_id,
-                       coalesce(r.job_title,'') || ' ' || coalesce(r.description_raw,'')
-                FROM raw_postings r
-                WHERE %s OR NOT EXISTS (
-                    SELECT 1 FROM posting_technologies p
-                    WHERE p.source = r.source AND p.job_id = r.job_id
-                )
-            """, (args.rebuild,))
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-
-    log.info("%s postings to match against %s technologies",
-             f"{len(rows):,}", len(BY_SLUG))
-
-    pairs: list[tuple] = []
+    # 30,910 unmatched postings carry about 155 MB of description text between
+    # them, and asking for all of it in a single statement timed the
+    # connection out - "SSL SYSCALL error: Operation timed out" - after the
+    # query had already done the work. Pages are read on a short-lived
+    # connection and written on another, because the matching in between runs
+    # for minutes and Neon closes anything left idle across it.
+    #
+    # The cursor is (source, job_id) rather than an offset. A posting that
+    # matches no technology never gets a row in posting_technologies, so a
+    # NOT EXISTS filter would hand it back on every page forever; a keyset
+    # moves past it.
+    PAGE = 2000
+    last_source, last_job = "", ""
+    rows_seen = 0
+    pairs_written = 0
     matched_postings = 0
-    for source, job_id, text in rows:
-        slugs = match_technologies(text)
-        if slugs:
-            matched_postings += 1
-            pairs.extend((source, job_id, s) for s in slugs)
 
-    # Each batch on its own connection, so the write outlives any single one
-    # the warehouse is willing to hold open.
-    written = 0
-    for i in range(0, len(pairs), BATCH):
+    if args.rebuild:
         conn = connect()
         try:
             with conn, conn.cursor() as cur:
-                execute_values(cur, """
-                    INSERT INTO posting_technologies (source, job_id, tech_slug)
-                    VALUES %s ON CONFLICT DO NOTHING
-                """, pairs[i:i + BATCH], page_size=1000)
-            written += len(pairs[i:i + BATCH])
+                cur.execute("TRUNCATE posting_technologies")
+        finally:
+            conn.close()
+        log.info("Cleared existing matches (--rebuild)")
+
+    while True:
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                # Match the title as well as the description: the title often
+                # names the technology ("Snowflake Data Engineer") when a
+                # truncated description does not.
+                cur.execute("""
+                    SELECT r.source, r.job_id,
+                           coalesce(r.job_title,'') || ' ' || coalesce(r.description_raw,'')
+                    FROM raw_postings r
+                    WHERE (r.source, r.job_id) > (%s, %s)
+                      AND (%s OR NOT EXISTS (
+                          SELECT 1 FROM posting_technologies p
+                          WHERE p.source = r.source AND p.job_id = r.job_id
+                      ))
+                    ORDER BY r.source, r.job_id
+                    LIMIT %s
+                """, (last_source, last_job, args.rebuild, PAGE))
+                page = cur.fetchall()
         finally:
             conn.close()
 
-    pct = (matched_postings / len(rows) * 100) if rows else 0
-    log.info("%s postings matched at least one technology (%.0f%%), %s mentions written",
-             f"{matched_postings:,}", pct, f"{written:,}")
+        if not page:
+            break
+        last_source, last_job = page[-1][0], page[-1][1]
+        rows_seen += len(page)
+
+        pairs: list[tuple] = []
+        for source, job_id, text in page:
+            slugs = match_technologies(text)
+            if slugs:
+                matched_postings += 1
+                pairs.extend((source, job_id, s) for s in slugs)
+
+        for i in range(0, len(pairs), BATCH):
+            conn = connect()
+            try:
+                with conn, conn.cursor() as cur:
+                    execute_values(cur, """
+                        INSERT INTO posting_technologies (source, job_id, tech_slug)
+                        VALUES %s ON CONFLICT DO NOTHING
+                    """, pairs[i:i + BATCH], page_size=1000)
+            finally:
+                conn.close()
+        pairs_written += len(pairs)
+        log.info("  %s postings scanned, %s mentions written",
+                 f"{rows_seen:,}", f"{pairs_written:,}")
+
+    pct = (matched_postings / rows_seen * 100) if rows_seen else 0
+    log.info("%s of %s postings matched at least one technology (%.0f%%), "
+             "%s mentions written",
+             f"{matched_postings:,}", f"{rows_seen:,}", pct, f"{pairs_written:,}")
 
     conn.close()
 
