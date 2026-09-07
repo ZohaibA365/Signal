@@ -58,6 +58,13 @@
     <a href="{{ rel }}market/">market index</a> but never shown as something to click.
   </p>
   <p class="note">
+    Search covers the {{ "{:,}".format(stats.searchable_roles) if stats.searchable_roles else "20,000" }}
+    most recently posted roles. Older postings still count toward the
+    <a href="{{ rel }}market/">market index</a> but are left out of search, because the
+    whole searchable set is downloaded with this page and the full corpus would make
+    that slow on a phone.
+  </p>
+  <p class="note">
     Salary shows only where the employer published it — roughly 99% of figures in the
     source are estimates and are excluded. Visa labels come from
     <a href="{{ rel }}method/">Department of Labor filings</a>, not from job text.

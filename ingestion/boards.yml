@@ -121,3 +121,23 @@ companies:
     tenant: sunlife
     host: wd3
     site: Campus
+
+  Thomson Reuters:
+    ats: workday
+    tenant: thomsonreuters
+    host: wd5
+    site: External_Career_Site
+    note: Toronto headquartered, large Ontario technology presence
+
+  Aviva:
+    ats: workday
+    tenant: aviva
+    host: wd1
+    site: External
+    note: Markham, Ontario
+
+  Mars:
+    ats: workday
+    tenant: mars
+    host: wd3
+    site: External

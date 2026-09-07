@@ -229,6 +229,7 @@ def build(skip_pages: bool = False) -> None:
             "k": [code("k", t) for t in (r["techs"] or "").split(",") if t],
         })
     payload = {"prefixes": prefixes, "dicts": dicts, "rows": rows_out}
+    searchable_roles = len(rows_out)
 
     (DIST / "data").mkdir(exist_ok=True)
     raw = json.dumps(payload, separators=(",", ":")).encode()
@@ -246,6 +247,9 @@ def build(skip_pages: bool = False) -> None:
     env.filters["fmt"] = lambda v: f"{int(v):,}" if v is not None else "—"
 
     stats = data["CORPUS_STATS"][0]
+    # Surfaced on the page: the search set is capped, and saying so is better
+    # than letting someone conclude a missing job means the site is broken.
+    stats["searchable_roles"] = searchable_roles
     fresh = data["FRESHNESS"][0]
     # How many distinct days we have actually collected on. Trend claims are
     # gated on this: with a short history, "last 30 days vs the 30 before"
