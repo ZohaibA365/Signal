@@ -239,3 +239,15 @@ CREATE TABLE IF NOT EXISTS board_registry (
 );
 
 CREATE INDEX IF NOT EXISTS idx_board_registry_status ON board_registry (status);
+
+-- When each board was last fetched, so a daily run can refresh the stalest
+-- boards within a time budget instead of walking all of them.
+--
+-- The registry grew from 32 companies to 1,624, and a full pass went from
+-- minutes to about 85 of them. The scheduled pipeline allows 45, so it began
+-- timing out at the ingest step every morning and skipping the 10 steps after
+-- it - the warehouse, the transform and the site all stopped moving while the
+-- run still looked like it was doing something.
+ALTER TABLE board_registry ADD COLUMN IF NOT EXISTS last_ingested_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_board_registry_staleness
+    ON board_registry (last_ingested_at NULLS FIRST);

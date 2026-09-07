@@ -61,7 +61,6 @@ joined as (
         o.refuses_sponsorship,
         o.offers_sponsorship,
         o.link_tier,
-        o.description_raw,
 
         e.eligibility,
         e.eligibility_reason,

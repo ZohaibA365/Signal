@@ -72,16 +72,44 @@ RELEVANT_RE = re.compile(
 NEEDS_DETAIL = {"workday", "smartrecruiters", "oraclecloud"}
 
 
-def resolved_boards(conn, only: list[str] | None) -> list[dict]:
+def resolved_boards(conn, only: list[str] | None,
+                    max_boards: int | None = None) -> list[dict]:
+    """
+    Boards to fetch this run, stalest first.
+
+    A daily run cannot walk the whole registry any more. It held 32 companies
+    when the pipeline was written and holds 1,624 now, taking about 85 minutes
+    against a 45-minute step budget - so the scheduled run timed out at this
+    step every morning and skipped the ten steps after it.
+
+    Ordering by last_ingested_at with nulls first means a bounded run refreshes
+    whatever has gone longest without a look, and every board comes round in
+    turn rather than the same prefix being refetched daily.
+    """
     with conn.cursor() as cur:
         if only:
             cur.execute("""SELECT company_name, ats, coords FROM board_registry
                            WHERE status='resolved' AND company_name = ANY(%s)""", (only,))
-        else:
-            cur.execute("""SELECT company_name, ats, coords, postings_seen
-                           FROM board_registry WHERE status='resolved'
-                           ORDER BY postings_seen DESC NULLS LAST""")
+            return cur.fetchall()
+        cur.execute("""SELECT company_name, ats, coords, postings_seen
+                       FROM board_registry WHERE status='resolved'
+                       ORDER BY last_ingested_at ASC NULLS FIRST,
+                                postings_seen DESC NULLS LAST
+                       LIMIT %s""", (max_boards or 100000,))
         return cur.fetchall()
+
+
+def mark_ingested(names: list[str]) -> None:
+    """Stamp boards as fetched so the next run moves on to the next slice."""
+    if not names:
+        return
+    conn = connect()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("""UPDATE board_registry SET last_ingested_at = NOW()
+                           WHERE company_name = ANY(%s)""", (names,))
+    finally:
+        conn.close()
 
 
 def fetch_board(entry: dict) -> list[dict]:
@@ -189,12 +217,14 @@ def main() -> None:
     ap.add_argument("--company", "--companies", nargs="+", dest="company",
                     help="restrict to these companies")
     ap.add_argument("--companies-file", help="file with one company name per line")
+    ap.add_argument("--max-boards", type=int,
+                    help="fetch at most N boards, stalest first (for a bounded run)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     conn = connect(cursor_factory=RealDictCursor)
     try:
-        boards = resolved_boards(conn, target_names(args) or None)
+        boards = resolved_boards(conn, target_names(args) or None, args.max_boards)
     finally:
         conn.close()
     log.info("%d resolved boards", len(boards))
@@ -204,6 +234,7 @@ def main() -> None:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     ingested_at = datetime.now(UTC).isoformat()
     total = 0
+    done: list[str] = []
 
     for e in boards:
         name = e["company_name"]
@@ -216,6 +247,10 @@ def main() -> None:
         log.info("  %-28s %-16s %5d in scope, %4d with full text",
                  name, e["ats"], len(kept), withtext)
         total += len(kept)
+        done.append(name)
+        if len(done) >= 25:
+            mark_ingested(done)
+            done = []
 
         if kept and not args.dry_run:
             doc = {"_ingestion_metadata": {
@@ -228,6 +263,7 @@ def main() -> None:
                 Key=f"raw/source=company_board/ingest_date={today}/{slug}.json",
                 Body=json.dumps(doc, indent=2).encode(), ContentType="application/json")
 
+    mark_ingested(done)
     log.info("%s postings across %d boards", f"{total:,}", len(boards))
 
 

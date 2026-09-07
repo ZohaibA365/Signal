@@ -28,7 +28,19 @@ companies as (
 joined as (
 
     select
-        j.*,
+        /*
+          Everything except the description.
+
+          Description text is 139 MB of the warehouse, and carrying it through
+          the marts stored it three times over - raw_postings, here, and
+          apply_queue - which is what exhausted the 512 MB the hosted database
+          allows. Nothing downstream of staging reads it: the site excludes it
+          from the search payload deliberately, and the two jobs that need
+          full text (technology extraction and LLM scoring) read the raw layer
+          where it lives once.
+        */
+        {{ dbt_utils.star(from=ref('stg_jobs'), except=['description_raw'],
+                          relation_alias='j') }},
         c.total_postings          as company_total_postings,
         c.active_postings         as company_active_postings,
         c.roles_per_week          as company_roles_per_week,

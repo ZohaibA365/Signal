@@ -160,18 +160,22 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
     params: dict = {"profile": profile}
     sql = """
         SELECT r.source, r.job_id, r.company_name, r.job_title, r.location_raw,
-               r.location_state, r.posted_date::date, r.seniority, r.description_raw,
+               r.location_state, r.posted_date::date, r.seniority, raw.description_raw,
                r.salary_min, r.salary_is_predicted
         FROM {table} r
+        -- The description lives once, in the raw layer. Carrying it through
+        -- the marts stored it three times and filled the database.
+        JOIN raw_postings raw
+          ON raw.source = r.source AND raw.job_id = r.job_id
         LEFT JOIN job_enrichment e
                ON e.source = r.source AND e.job_id = r.job_id
               AND e.profile = %(profile)s
-        WHERE r.description_raw IS NOT NULL
+        WHERE raw.description_raw IS NOT NULL
     """.replace("{table}", table)
 
     if not force:
         sql += (" AND (e.job_id IS NULL OR e.description_hash <> "
-                "substring(encode(sha256(convert_to(r.description_raw,'UTF8')),'hex') for 16))")
+                "substring(encode(sha256(convert_to(raw.description_raw,'UTF8')),'hex') for 16))")
     if relevant:
         sql += " AND r.job_title ~* %(relevant)s"
         params["relevant"] = RELEVANT_TITLE
