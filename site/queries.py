@@ -161,6 +161,17 @@ GROUP BY q.job_id, q.company_name, q.job_title, q.location_state, q.country,
          q.fit_score, q.eligibility, q.posting_sponsorship, q.sponsor_filings,
          q.location_raw
 ORDER BY q.days_since_posted
+-- Capped, because the whole searchable set ships with the page.
+--
+-- The corpus went from 14,795 roles to 39,542 and the payload went with it,
+-- from 436 kB gzipped to 1,374 kB - on every page load, before anything is
+-- rendered. Ordering is by freshness, so the cap keeps the newest roles and
+-- drops the stalest; nobody scrolls to the twenty-thousandth result, and a
+-- posting old enough to fall off this list is usually filled anyway.
+--
+-- This is the point at which a static site stops being the right answer. The
+-- honest fix is search that runs somewhere other than the visitor's browser.
+LIMIT 20000
 """
 
 FRESHNESS = """
