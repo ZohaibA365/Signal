@@ -111,7 +111,14 @@ jobs:
         # posting spend minutes on one company. 30 minutes leaves margin
         # inside the 45 this step allows, and stalest-first ordering means
         # every board still comes round.
-        run: python ingestion/board_ingest.py --max-seconds 1800
+        # Two budgets, because one is not enough. --max-seconds stops new
+        # boards after 25 minutes; --board-seconds stops any single board
+        # spending more than 4 on detail fetches. Without the second, one
+        # company can consume the run on its own - Bosch carries 4,803
+        # postings and ran past ten minutes unbounded. Worst case is now
+        # 25 + 4 minutes against the 45 this step allows.
+        run: |
+          python ingestion/board_ingest.py --max-seconds 1500 --board-seconds 240
 
       # Newly seen employers become candidates for their own board. Capped so
       # the daily run stays bounded; failures are cached, so each day works

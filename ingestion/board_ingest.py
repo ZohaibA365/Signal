@@ -113,7 +113,7 @@ def mark_ingested(names: list[str]) -> None:
         conn.close()
 
 
-def fetch_board(entry: dict) -> list[dict]:
+def fetch_board(entry: dict, board_seconds: int | None = None) -> list[dict]:
     """
     All in-scope postings for one company, with descriptions where they matter.
 
@@ -137,7 +137,9 @@ def fetch_board(entry: dict) -> list[dict]:
         return [j for j in jobs if in_scope(j, {"us", "ca"})]
 
     wanted = [j for j in jobs if RELEVANT_RE.search(j.get("title") or "")]
-    by_id = {d["job_id"]: d for d in _detail_only(ats, coords, wanted)}
+    deadline = (time.monotonic() + board_seconds) if board_seconds else None
+    by_id = {d["job_id"]: d for d in _detail_only(ats, coords, wanted,
+                                                  deadline=deadline)}
     for j in wanted:
         d = by_id.get(j["job_id"])
         if d:
@@ -187,7 +189,7 @@ DETAIL_FN = {"workday": _workday_detail,
 
 
 def _detail_only(ats: str, coords: dict, wanted: list[dict],
-                 workers: int = 8) -> list[dict]:
+                 workers: int = 8, deadline: float | None = None) -> list[dict]:
     """
     Fetch full text for a chosen subset, concurrently.
 
@@ -199,8 +201,19 @@ def _detail_only(ats: str, coords: dict, wanted: list[dict],
     fn = DETAIL_FN.get(ats)
     if not fn or not wanted:
         return []
+
+    def one(j):
+        # Past the board's own deadline, stop paying for detail and let the
+        # posting keep its list-level fields. A single company must not be
+        # able to consume the whole run: Bosch carries 4,803 postings and
+        # detail costs a request each, which is how one board ran past ten
+        # minutes and left the scheduled step no room.
+        if deadline is not None and time.monotonic() > deadline:
+            return None
+        return fn(coords, j)
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        results = list(ex.map(lambda j: fn(coords, j), wanted))
+        results = list(ex.map(one, wanted))
     return [r for r in results if r]
 
 
@@ -222,6 +235,8 @@ def main() -> None:
                     help="fetch at most N boards, stalest first (for a bounded run)")
     ap.add_argument("--max-seconds", type=int,
                     help="stop starting new boards after this many seconds")
+    ap.add_argument("--board-seconds", type=int, default=240,
+                    help="cap detail fetching for any single board")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -256,7 +271,7 @@ def main() -> None:
             break
         name = e["company_name"]
         try:
-            kept = fetch_board(e)
+            kept = fetch_board(e, args.board_seconds)
         except Exception as exc:
             log.warning("  %-28s FAILED %s: %s", name, type(exc).__name__, str(exc)[:70])
             continue
