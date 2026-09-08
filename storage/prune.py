@@ -41,7 +41,24 @@ log = logging.getLogger("prune")
 
 # Windows tried in order, widest first. The pipeline prunes only as far as it
 # needs to reach the target, so a quiet week keeps more history than a busy one.
-WINDOWS = (180, 120, 90, 60, 45, 30, 21, 14)
+WINDOWS = (180, 120, 90, 60, 45, 30)
+
+# DELETE the row, never UPDATE the text to NULL.
+#
+# The first version of this cleared descriptions with UPDATE, and that is what
+# filled the database it was written to protect. Postgres writes a new row
+# version per update and marks the old one dead, so clearing 62,993
+# descriptions left 186 MB of dead TOAST that plain VACUUM makes reusable but
+# never returns to the operating system. The table sat at 263 MB of TOAST
+# holding 77 MB of live text, and because UPDATE also needs space before it
+# frees any, the prune eventually could not run at all - the fix blocked by
+# what the fix had done. Recovering it needed a dump, a TRUNCATE and a
+# restore.
+#
+# Deleting the row is cheaper: it marks the tuple dead without writing a
+# second copy of the text first, so it works even when space is tight. And a
+# posting old enough to prune is not on the site anyway - the search payload
+# already stops at the freshest 20,000 - while S3 keeps every original.
 
 
 def db_mb(cur) -> float:
@@ -67,34 +84,36 @@ def main() -> None:
 
             for days in WINDOWS:
                 cur.execute("""
-                    SELECT count(*), coalesce(sum(length(description_raw)), 0) / 1048576.0
+                    SELECT count(*), coalesce(sum(length(coalesce(description_raw,''))), 0)
+                                     / 1048576.0
                     FROM raw_postings r
-                    WHERE r.description_raw IS NOT NULL
-                      AND r.posted_date < now() - make_interval(days => %s)
-                      AND EXISTS (SELECT 1 FROM posting_technologies p
-                                  WHERE p.source = r.source AND p.job_id = r.job_id)
+                    WHERE r.posted_date < now() - make_interval(days => %s)
+                      AND r.last_seen < now() - interval '7 days'
                 """, (days,))
                 n, mb = cur.fetchone()
-                log.info("  older than %3d days: %6d postings, %.0f MB of text", days, n, mb)
+                log.info("  older than %3d days and delisted: %6d postings, %.0f MB",
+                         days, n, mb)
                 if not n:
                     continue
                 if not args.apply:
                     continue
 
+                # Only postings that are BOTH old and no longer being seen on
+                # any board. A live posting keeps being re-seen every ingest,
+                # so last_seen is what distinguishes "still open, just posted a
+                # while ago" from "delisted".
                 cur.execute("""
-                    UPDATE raw_postings r SET description_raw = NULL
-                    WHERE r.description_raw IS NOT NULL
-                      AND r.posted_date < now() - make_interval(days => %s)
-                      AND EXISTS (SELECT 1 FROM posting_technologies p
-                                  WHERE p.source = r.source AND p.job_id = r.job_id)
+                    DELETE FROM raw_postings r
+                    WHERE r.posted_date < now() - make_interval(days => %s)
+                      AND r.last_seen < now() - interval '7 days'
                 """, (days,))
-                log.info("    cleared %s descriptions", f"{cur.rowcount:,}")
+                log.info("    deleted %s delisted postings", f"{cur.rowcount:,}")
 
                 # Plain VACUUM, not FULL. FULL rewrites the table and needs as
                 # much free space again as the table occupies, which is exactly
-                # what is missing here. Plain VACUUM marks the pages reusable,
-                # so the next load fills them instead of extending the file -
-                # which is what the size limit actually objects to.
+                # what is missing when this fires. Plain VACUUM marks the pages
+                # reusable so the next load fills them instead of extending the
+                # file, which is what the size limit objects to.
                 cur.execute("VACUUM (ANALYZE) raw_postings")
                 size = db_mb(cur)
                 log.info("    database now %.0f MB", size)
