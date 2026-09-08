@@ -128,6 +128,20 @@ jobs:
         continue-on-error: true
         run: python ingestion/board_discovery.py --load-manual --top 60
 
+      # Before loading, not after. The warehouse sits on a 512 MB ceiling and
+      # description text is most of what fills it - 240 MB of 489 used. Once
+      # it is full the load fails outright ("could not extend file because
+      # project size limit has been exceeded") and takes the seven steps after
+      # it down as skipped, which is how the pipeline broke on 7 September.
+      #
+      # Descriptions are working storage, not a record: nothing displays them,
+      # only extraction and scoring read them, and S3 keeps the originals.
+      # Pruning the oldest text back until the database is under target keeps
+      # the load able to run every day rather than until the next ceiling.
+      - name: Make room in the warehouse
+        timeout-minutes: 15
+        run: python storage/prune.py --apply --target-mb 380
+
       - name: Load aggregator postings to warehouse
         timeout-minutes: 20
         run: python storage/load_to_warehouse.py --country us ca
