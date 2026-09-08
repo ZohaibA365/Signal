@@ -157,8 +157,23 @@ jobs:
       - name: Extract technologies
         run: python ai_layer/extract_tech.py
 
+      # dbt_utils has to be installed before anything dbt runs. The models
+      # use generate_surrogate_key for the star schema and star() to carry
+      # every column except the description through the marts, so without the
+      # package dbt fails at parse time - instantly, with exit code 2, which
+      # reads like a mystery rather than a missing dependency.
+      #
+      # CI has always run this; the daily pipeline never did. It went
+      # unnoticed because the run had not reached the transform since the
+      # secrets were added - every failure before today was at an earlier
+      # step.
+      - name: Install dbt packages
+        timeout-minutes: 5
+        working-directory: dbt_signal
+        run: dbt deps
+
       - name: Transform
-        timeout-minutes: 20
+        timeout-minutes: 40
         working-directory: dbt_signal
         run: dbt build --profiles-dir . --no-version-check --target prod
 
