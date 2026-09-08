@@ -30,7 +30,11 @@ concurrency:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # The whole run, not a step. Measured on 7 September: steps 1-12 take
+    # 36 minutes, and the transform alone takes about 36 more now the corpus
+    # is 81,000 postings - which totals more than the 90 this used to allow.
+    # The old limit was set when the corpus was a quarter of the size.
+    timeout-minutes: 150
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
@@ -118,7 +122,7 @@ jobs:
         # postings and ran past ten minutes unbounded. Worst case is now
         # 25 + 4 minutes against the 45 this step allows.
         run: |
-          python ingestion/board_ingest.py --max-seconds 1500 --board-seconds 240
+          python ingestion/board_ingest.py --max-seconds 1200 --board-seconds 240
 
       # Newly seen employers become candidates for their own board. Capped so
       # the daily run stays bounded; failures are cached, so each day works
