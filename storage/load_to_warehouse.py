@@ -58,7 +58,25 @@ ON CONFLICT (source, job_id) DO UPDATE SET
     salary_min          = EXCLUDED.salary_min,
     salary_max          = EXCLUDED.salary_max,
     salary_is_predicted = EXCLUDED.salary_is_predicted,
-    description_raw     = EXCLUDED.description_raw,
+    -- Keep the EXISTING datum when the text has not changed, rather than
+    -- assigning the incoming one.
+    --
+    -- This is the difference between a warehouse that holds steady and one
+    -- that fills up in a day. Every run re-upserts around 50,000 postings,
+    -- and assigning description_raw unconditionally makes Postgres write a
+    -- fresh TOAST entry for each and orphan the old one - roughly 200 MB of
+    -- dead text per run, whether or not a single character differed. Plain
+    -- VACUUM makes those pages reusable but never returns them, so the file
+    -- only ever grew: 245 MB reclaimed this morning was 456 MB by lunchtime.
+    --
+    -- Re-assigning the row's own value stores the existing TOAST pointer
+    -- instead of allocating a new entry, so an unchanged posting costs
+    -- nothing beyond its heap tuple.
+    description_raw     = CASE
+        WHEN raw_postings.description_raw IS NOT DISTINCT FROM EXCLUDED.description_raw
+        THEN raw_postings.description_raw
+        ELSE EXCLUDED.description_raw
+    END,
     category            = EXCLUDED.category,
     redirect_url        = EXCLUDED.redirect_url,
     location_state      = EXCLUDED.location_state,
