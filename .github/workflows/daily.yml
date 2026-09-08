@@ -172,10 +172,30 @@ jobs:
         working-directory: dbt_signal
         run: dbt deps
 
+      # dbt's own error goes into the step summary, which is public, because
+      # step LOGS need admin rights on this repo and step names alone cannot
+      # distinguish a missing dependency from a failing test from a bad
+      # credential - all three exit 2 instantly. Three separate diagnoses of
+      # this step were guesses for exactly that reason.
       - name: Transform
         timeout-minutes: 40
         working-directory: dbt_signal
-        run: dbt build --profiles-dir . --no-version-check --target prod
+        run: |
+          set -o pipefail
+          if ! dbt build --profiles-dir . --no-version-check --target prod 2>&1 | tee /tmp/dbt.log; then
+            {
+              echo "### dbt build failed"
+              echo '```'
+              grep -iE "error|fail|not found|env var|compilation|database error" /tmp/dbt.log | head -40
+              echo '```'
+              echo "<details><summary>last 60 lines</summary>"
+              echo '```'
+              tail -60 /tmp/dbt.log
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       # Capped: the only step that spends money. The enricher also skips any
       # posting whose text has not changed.
