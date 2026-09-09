@@ -177,6 +177,12 @@ jobs:
       # distinguish a missing dependency from a failing test from a bad
       # credential - all three exit 2 instantly. Three separate diagnoses of
       # this step were guesses for exactly that reason.
+      # dbt's error is emitted as a workflow ANNOTATION, not just a step
+      # summary. Step logs need admin rights on this repository and summaries
+      # are only rendered in the web UI, but annotations are readable through
+      # the public API - so this is the one channel that can actually be read
+      # back when the run fails. Three separate diagnoses of this step were
+      # guesses precisely because "exit code 2" was all that escaped.
       - name: Transform
         timeout-minutes: 40
         working-directory: dbt_signal
@@ -186,14 +192,13 @@ jobs:
             {
               echo "### dbt build failed"
               echo '```'
-              grep -iE "error|fail|not found|env var|compilation|database error" /tmp/dbt.log | head -40
-              echo '```'
-              echo "<details><summary>last 60 lines</summary>"
-              echo '```'
               tail -60 /tmp/dbt.log
               echo '```'
-              echo "</details>"
             } >> "$GITHUB_STEP_SUMMARY"
+            # Annotations cannot contain raw newlines; %0A is the escape.
+            DETAIL=$(grep -iE "error|fail|not found|env var|compil|database|permission|does not exist" /tmp/dbt.log \
+                     | head -12 | sed 's/"/\x27/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=dbt build failed::${DETAIL:-no matching lines; last line was $(tail -1 /tmp/dbt.log)}"
             exit 1
           fi
 
