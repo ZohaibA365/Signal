@@ -183,19 +183,28 @@ jobs:
       # apart.
       - name: Derive warehouse credentials for dbt
         run: |
-          python - <<'PY' >> "$GITHUB_ENV"
+          # Two destinations, and they are not interchangeable: ::add-mask::
+          # is a workflow command and must go to STDOUT, while NAME=VALUE
+          # pairs go to the $GITHUB_ENV file. Writing the mask command into
+          # the env file fails the step with "Invalid format".
+          CREDS=$(python - <<'PY'
           import os, urllib.parse as up
-          # Strip quotes defensively: a secret pasted with them would
-          # otherwise parse to an empty username and fail confusingly.
-          p = up.urlparse(os.environ["DATABASE_URL"].strip().strip("'\""))
+          raw = os.environ["DATABASE_URL"].strip().strip("'\"")
+          p = up.urlparse(raw)
           user = up.unquote(p.username or "")
           pw = up.unquote(p.password or "")
           if not user or not pw:
-              raise SystemExit("DATABASE_URL has no user/password to derive from")
-          print("::add-mask::" + pw)
-          print(f"NEON_USER={user}")
-          print(f"NEON_PASSWORD={pw}")
+              raise SystemExit("DATABASE_URL carries no user or password")
+          print(user)
+          print(pw)
           PY
+          )
+          NEON_USER=$(printf '%s\n' "$CREDS" | sed -n 1p)
+          NEON_PASSWORD=$(printf '%s\n' "$CREDS" | sed -n 2p)
+          echo "::add-mask::$NEON_PASSWORD"
+          echo "NEON_USER=$NEON_USER" >> "$GITHUB_ENV"
+          echo "NEON_PASSWORD=$NEON_PASSWORD" >> "$GITHUB_ENV"
+          echo "derived credentials for user $NEON_USER"
 
       - name: Install dbt packages
         timeout-minutes: 5
