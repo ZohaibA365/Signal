@@ -330,7 +330,21 @@
     reset();
   });
 
-  fetch("data/jobs.json")
+  // Request the payload with the same stamp the script tag was served with,
+  // so a cached script and a cached payload can only ever be the matching
+  // pair. Falls back to the bare path if the tag has no version.
+  var stamp = "";
+  var tag = document.currentScript;
+  if (!tag) {
+    // currentScript is null in some execution contexts, so fall back to
+    // finding this script by name rather than losing the stamp silently.
+    var all = document.getElementsByTagName("script");
+    for (var si = 0; si < all.length; si++) {
+      if (all[si].src && all[si].src.indexOf("search.js") !== -1) { tag = all[si]; break; }
+    }
+  }
+  if (tag && tag.src.indexOf("?v=") !== -1) stamp = tag.src.split("?v=")[1];
+  fetch("data/jobs.json" + (stamp ? "?v=" + stamp : ""))
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(function (p) {
       PREFIX = p.prefixes || [];

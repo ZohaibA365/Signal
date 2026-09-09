@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import logging
 import os
@@ -234,6 +235,15 @@ def build(skip_pages: bool = False) -> None:
     (DIST / "data").mkdir(exist_ok=True)
     raw = json.dumps(payload, separators=(",", ":")).encode()
     (DIST / "data" / "jobs.json").write_bytes(raw)
+    # A build stamp shared by the script tag and the payload request.
+    #
+    # The payload format changed once already - rows went from carrying
+    # strings to carrying dictionary indices - and a browser holding the old
+    # cached script against the new payload fails exactly like a broken site.
+    # Pinning both to the same hash means a cached script can never be paired
+    # with a payload it does not understand: either both come from cache or
+    # both are refetched.
+    payload_hash = hashlib.sha256(raw).hexdigest()[:12]
     gz = gzip.compress(raw, 9)
     log.info("Search payload: %s roles, %.0f kB raw, %.0f kB gzipped",
              f"{len(rows_out):,}", len(raw) / 1024, len(gz) / 1024)
@@ -250,6 +260,7 @@ def build(skip_pages: bool = False) -> None:
     # Surfaced on the page: the search set is capped, and saying so is better
     # than letting someone conclude a missing job means the site is broken.
     stats["searchable_roles"] = searchable_roles
+    stats["build_hash"] = payload_hash
     fresh = data["FRESHNESS"][0]
     # How many distinct days we have actually collected on. Trend claims are
     # gated on this: with a short history, "last 30 days vs the 30 before"
