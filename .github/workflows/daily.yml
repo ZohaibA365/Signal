@@ -167,6 +167,36 @@ jobs:
       # unnoticed because the run had not reached the transform since the
       # secrets were added - every failure before today was at an earlier
       # step.
+      # dbt's profiles.yml reads NEON_USER and NEON_PASSWORD, deliberately
+      # without defaults so no password is committed. Locally those come from
+      # .env, which dbt loads by itself - dbt/cli/main.py calls
+      # load_dotenv(find_dotenv(usecwd=True)) on startup. CI has no .env,
+      # because it is gitignored, so dbt failed at parse time with "Env var
+      # required but not provided: 'NEON_USER'" and exited 2 instantly.
+      #
+      # That auto-loading is exactly why the failure resisted diagnosis: the
+      # same command passes locally and fails in CI, and the error never left
+      # the runner.
+      #
+      # Both are derived from DATABASE_URL rather than added as new secrets,
+      # so there is one credential to rotate rather than three that can drift
+      # apart.
+      - name: Derive warehouse credentials for dbt
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import os, urllib.parse as up
+          # Strip quotes defensively: a secret pasted with them would
+          # otherwise parse to an empty username and fail confusingly.
+          p = up.urlparse(os.environ["DATABASE_URL"].strip().strip("'\""))
+          user = up.unquote(p.username or "")
+          pw = up.unquote(p.password or "")
+          if not user or not pw:
+              raise SystemExit("DATABASE_URL has no user/password to derive from")
+          print("::add-mask::" + pw)
+          print(f"NEON_USER={user}")
+          print(f"NEON_PASSWORD={pw}")
+          PY
+
       - name: Install dbt packages
         timeout-minutes: 5
         working-directory: dbt_signal
