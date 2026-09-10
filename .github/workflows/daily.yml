@@ -244,7 +244,10 @@ jobs:
       # Capped: the only step that spends money. The enricher also skips any
       # posting whose text has not changed.
       - name: Score new roles
-        if: ${{ !inputs.skip_enrichment }}
+        # github.event.inputs rather than inputs: on a scheduled run the
+        # inputs context is empty, and comparing explicitly to 'true' is
+        # unambiguous where negating an absent value is not.
+        if: ${{ github.event.inputs.skip_enrichment != 'true' }}
         timeout-minutes: 40
         continue-on-error: true          # a scoring failure must not block the refresh
         # Two passes, because the two halves of the board are worth different

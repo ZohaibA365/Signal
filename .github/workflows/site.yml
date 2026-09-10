@@ -6,8 +6,22 @@ name: Build and deploy site
 #
 # Required secret: DATABASE_URL (the Neon connection string).
 on:
+  # Publish when the pipeline has actually finished, not half an hour after it
+  # was scheduled to start.
+  #
+  # Both crons are delayed by roughly the same five hours on a free runner, so
+  # the intended half-hour gap survives - but the pipeline takes 33 minutes,
+  # and the site build was starting around 12:14 against a pipeline that began
+  # at 11:48 and finished at 12:21. The site was publishing the warehouse as it
+  # stood partway through the transform.
+  workflow_run:
+    workflows: ["Daily pipeline"]
+    types: [completed]
+
+  # Kept as a safety net: if the pipeline never runs, the site still
+  # republishes rather than going stale indefinitely.
   schedule:
-    - cron: "30 7 * * *"        # after the 07:00 pipeline run
+    - cron: "30 13 * * *"
   push:
     branches: [main]
     paths:
