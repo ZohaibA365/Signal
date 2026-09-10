@@ -154,6 +154,22 @@ jobs:
         timeout-minutes: 20
         run: python storage/load_to_warehouse.py --boards
 
+      # Immediately after the loads, because what it records is destroyed by
+      # the next run. raw_postings holds one last_seen and the loader
+      # overwrites it for all ~54,000 postings every morning, so "this posting
+      # was open on the 9th" exists for exactly one day before it is gone.
+      # Like the market snapshot, a missed run is a permanent hole rather than
+      # something a later run can backfill - which is why this is a hard step
+      # and not continue-on-error.
+      #
+      # It is also why both MIN_DAYS_FOR_TREND gates were still shut at 9 days
+      # of history while the corpus held 65,598 postings: the warehouse had
+      # the jobs and none of the record.
+      - name: Archive postings to the data lake
+        if: ${{ env.S3_BUCKET != '' }}
+        timeout-minutes: 15
+        run: python storage/archive_postings.py
+
       - name: Extract technologies
         run: python ai_layer/extract_tech.py
 
