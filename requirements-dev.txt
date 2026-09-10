@@ -16,3 +16,6 @@ pydantic==2.13.4
 
 # Tests
 pytest==9.1.1
+
+# Snowflake archive lives in requirements-snowflake.txt on purpose - it is
+# optional, and its install must not be able to break this one.

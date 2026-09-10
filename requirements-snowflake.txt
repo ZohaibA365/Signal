@@ -1,0 +1,14 @@
+# Snowflake archive dependencies, deliberately NOT in requirements-dev.txt.
+#
+# Snowflake is an optional archive, not part of the serving path: the daily
+# pipeline must go green whether or not it is configured. Keeping these pins
+# out of requirements-dev.txt means the step that installs them can fail
+# without touching the install every other step depends on.
+#
+# Both were already imported by storage/ and configured in dbt_signal/
+# profiles.yml but declared nowhere, so a clean checkout could not run any of
+# it. Install with:  pip install -r requirements-snowflake.txt
+snowflake-connector-python==4.7.2
+
+# Pairs with the dbt-core 1.12.3 pinned in requirements-dev.txt.
+dbt-snowflake==1.12.0

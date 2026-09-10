@@ -6,16 +6,22 @@ Description text is the whole problem: 240 MB of the 489 MB used, against a
 "could not extend file because project size limit has been exceeded" - which
 failed the load step and skipped the seven steps after it.
 
-Descriptions are working storage, not a record. Nothing displays them: the
-site excludes them from the search payload deliberately, and only two jobs
-ever read them - technology extraction and LLM scoring. Once a posting has
-been through extraction, its text has done the work it was fetched for, and
-S3 still holds the original if it is ever wanted again.
+Whole rows are deleted, not description text - see the long comment below
+for why the text-clearing version had to be abandoned. A posting qualifies
+only when it is both older than the retention window and no longer being seen
+on any board, because a live posting is re-seen on every ingest.
 
-So descriptions are dropped for postings past a retention window, oldest
-first, and only where extraction has already run. Rows themselves are kept:
-they carry the title, company, location and link the site actually uses, and
-those are small.
+Know the limitation before relying on this. That rule is deliberately
+conservative and, at the moment, it frees almost nothing: on 2026-09-09 it
+matched 0 postings at the 180-day window and 13 at 30 days, because the
+corpus is young and nearly everything in it is still being re-seen. The
+database sat at 415 MB of a 512 MB ceiling regardless, with 195 MB of that in
+the description TOAST table.
+
+So this script cannot currently keep the warehouse under its limit, and it
+now says so - report() emits a warning annotation rather than logging a size
+and exiting 0. The real fix is to stop storing finished description text in
+the serving database at all, which needs the archive to exist first.
 
 Usage:
     python storage/prune.py                 # report only
@@ -43,6 +49,11 @@ log = logging.getLogger("prune")
 # needs to reach the target, so a quiet week keeps more history than a busy one.
 WINDOWS = (180, 120, 90, 60, 45, 30)
 
+# Neon's free tier ceiling. Only used for reporting: the point is that a run
+# which frees nothing should say so loudly rather than logging a size and
+# exiting 0, which is what it did while the database sat at 415 MB for days.
+CEILING_MB = 512.0
+
 # DELETE the row, never UPDATE the text to NULL.
 #
 # The first version of this cleared descriptions with UPDATE, and that is what
@@ -66,9 +77,54 @@ def db_mb(cur) -> float:
     return float(cur.fetchone()[0])
 
 
+def report(cur, started_mb: float, deleted: int, args) -> None:
+    """
+    Say plainly whether the prune actually did anything.
+
+    It used to log a size and exit 0 whether it had freed 200 MB or nothing,
+    and "nothing" is the case that matters: the retention rule is old AND
+    delisted, but a posting that is still on a board keeps being re-seen, so
+    last_seen never goes stale for anything recent. On 2026-09-09 that rule
+    matched 0 rows at the 180-day window and 13 at 30 days, against a database
+    sitting at 415 MB of a 512 MB ceiling. The run looked like a success every
+    morning while the ceiling got closer.
+
+    A warning annotation is used rather than a failure because a full
+    warehouse is not this step's fault and failing here would skip the eight
+    steps after it - which is the outage, not the fix.
+    """
+    final_mb = db_mb(cur)
+    freed = started_mb - final_mb
+    log.info("finished at %.0f MB - deleted %s postings, reclaimed %.0f MB",
+             final_mb, f"{deleted:,}", freed)
+
+    if final_mb <= args.target_mb:
+        return
+
+    headroom = CEILING_MB - final_mb
+    log.warning("still %.0f MB over target with only %.0f MB of headroom left",
+                final_mb - args.target_mb, headroom)
+    if not deleted:
+        log.warning("the retention rule matched nothing: postings are still "
+                    "being re-seen, so last_seen never goes stale")
+
+    # GitHub renders these on the run page even for people who cannot read
+    # step logs, so the ceiling shows up before it becomes an outage.
+    if os.getenv("GITHUB_ACTIONS"):
+        print(f"::warning::Warehouse at {final_mb:.0f} MB of {CEILING_MB:.0f} MB "
+              f"({headroom:.0f} MB headroom). Prune reclaimed {freed:.0f} MB "
+              f"from {deleted:,} postings.")
+        summary = os.getenv("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a") as fh:
+                fh.write(f"\n**Warehouse {final_mb:.0f} MB / {CEILING_MB:.0f} MB** "
+                         f"- reclaimed {freed:.0f} MB from {deleted:,} postings, "
+                         f"{headroom:.0f} MB headroom remaining.\n")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Keep the warehouse inside its size limit")
-    ap.add_argument("--apply", action="store_true", help="actually clear text")
+    ap.add_argument("--apply", action="store_true", help="actually delete postings")
     ap.add_argument("--target-mb", type=float, default=380.0,
                     help="stop pruning once the database is under this size")
     args = ap.parse_args()
@@ -76,8 +132,10 @@ def main() -> None:
     conn = connect(autocommit=True)
     try:
         with conn.cursor() as cur:
-            size = db_mb(cur)
-            log.info("database %.0f MB, target %.0f MB", size, args.target_mb)
+            size = started_mb = db_mb(cur)
+            deleted = 0
+            log.info("database %.0f MB of %.0f MB ceiling, target %.0f MB",
+                     size, CEILING_MB, args.target_mb)
             if size <= args.target_mb:
                 log.info("under target - nothing to prune")
                 return
@@ -107,6 +165,7 @@ def main() -> None:
                     WHERE r.posted_date < now() - make_interval(days => %s)
                       AND r.last_seen < now() - interval '7 days'
                 """, (days,))
+                deleted += cur.rowcount
                 log.info("    deleted %s delisted postings", f"{cur.rowcount:,}")
 
                 # Plain VACUUM, not FULL. FULL rewrites the table and needs as
@@ -120,7 +179,7 @@ def main() -> None:
                 if size <= args.target_mb:
                     break
 
-            log.info("finished at %.0f MB", db_mb(cur))
+            report(cur, started_mb, deleted, args)
     finally:
         conn.close()
 
