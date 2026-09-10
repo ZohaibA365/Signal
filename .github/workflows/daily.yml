@@ -93,12 +93,29 @@ jobs:
       # the source API reports today's demand and nothing else, so a missed
       # run is a permanent hole in the series. It runs first for that reason.
       - name: Market snapshot
+        id: snapshot
         timeout-minutes: 20
-        run: python ingestion/market_snapshot.py
+        run: bash scripts/run_step.sh "Market snapshot" python ingestion/market_snapshot.py
 
+      # continue-on-error, because this is the least valuable source in the
+      # project and it was taking everything else down with it. Every one of
+      # the 51,335 rows the job board actually publishes comes from a company
+      # board: site/queries.py filters link_tier = 'direct' and an aggregator
+      # link is a geo-blocked redirect, so Adzuna contributes zero publishable
+      # jobs. It feeds corpus counts and company statistics, nothing more.
+      #
+      # On 2026-09-10 it failed 95 seconds in and skipped the fourteen steps
+      # after it - the board ingest, both loads, the archive, the transform and
+      # the site refresh. A statistics source must not be able to do that, and
+      # least of all to the archive, whose day cannot be recreated once the
+      # next load moves last_seen.
       - name: Ingest postings from aggregator
+        id: aggregator
         timeout-minutes: 30
-        run: python ingestion/adzuna_ingest.py --pages 5 --country us ca --resume
+        continue-on-error: true
+        run: >-
+          bash scripts/run_step.sh "Ingest postings from aggregator"
+          python ingestion/adzuna_ingest.py --pages 5 --country us ca --resume
 
       # The job list is built from career boards, not the aggregator: an
       # Adzuna link is country-gated and cannot be clicked from outside the
@@ -106,6 +123,7 @@ jobs:
       # republishing the same board postings while only the market statistics
       # moved.
       - name: Ingest postings from career boards
+        id: boards
         timeout-minutes: 45
         # Bounded by wall-clock time, not board count.
         #
@@ -121,16 +139,20 @@ jobs:
         # company can consume the run on its own - Bosch carries 4,803
         # postings and ran past ten minutes unbounded. Worst case is now
         # 25 + 4 minutes against the 45 this step allows.
-        run: |
+        run: >-
+          bash scripts/run_step.sh "Ingest postings from career boards"
           python ingestion/board_ingest.py --max-seconds 1200 --board-seconds 240
 
       # Newly seen employers become candidates for their own board. Capped so
       # the daily run stays bounded; failures are cached, so each day works
       # through companies the previous days have not already answered.
       - name: Discover new boards
+        id: discover
         timeout-minutes: 20
         continue-on-error: true
-        run: python ingestion/board_discovery.py --load-manual --top 60
+        run: >-
+          bash scripts/run_step.sh "Discover new boards"
+          python ingestion/board_discovery.py --load-manual --top 60
 
       # Before loading, not after. The warehouse sits on a 512 MB ceiling and
       # description text is most of what fills it - 240 MB of 489 used. Once
@@ -144,34 +166,56 @@ jobs:
       # the load able to run every day rather than until the next ceiling.
       - name: Make room in the warehouse
         timeout-minutes: 15
-        run: python storage/prune.py --apply --target-mb 380
+        run: >-
+          bash scripts/run_step.sh "Make room in the warehouse"
+          python storage/prune.py --apply --target-mb 380
 
       - name: Load aggregator postings to warehouse
+        id: load_aggregator
         timeout-minutes: 20
-        run: python storage/load_to_warehouse.py --country us ca
+        run: >-
+          bash scripts/run_step.sh "Load aggregator postings"
+          python storage/load_to_warehouse.py --country us ca
 
       - name: Load board postings to warehouse
+        id: load_boards
         timeout-minutes: 20
-        run: python storage/load_to_warehouse.py --boards
+        run: >-
+          bash scripts/run_step.sh "Load board postings"
+          python storage/load_to_warehouse.py --boards
 
-      # Immediately after the loads, because what it records is destroyed by
-      # the next run. raw_postings holds one last_seen and the loader
-      # overwrites it for all ~54,000 postings every morning, so "this posting
-      # was open on the 9th" exists for exactly one day before it is gone.
-      # Like the market snapshot, a missed run is a permanent hole rather than
-      # something a later run can backfill - which is why this is a hard step
-      # and not continue-on-error.
+      # Placed after the loads, because that is when raw_postings holds today's
+      # sightings - but run with always(), because this is the one step whose
+      # data cannot be recreated. The loader overwrites last_seen for all
+      # ~54,000 postings every morning, so "this posting was open on the 10th"
+      # exists for one day before it is gone. Like the market snapshot, a
+      # missed run is a permanent hole, not something a later run backfills.
+      # That is also why both MIN_DAYS_FOR_TREND gates were still shut at 9
+      # days of history while the corpus held 65,598 postings: the warehouse
+      # had the jobs and none of the record.
       #
-      # It is also why both MIN_DAYS_FOR_TREND gates were still shut at 9 days
-      # of history while the corpus held 65,598 postings: the warehouse had
-      # the jobs and none of the record.
+      # always() is safe here because the script is idempotent - it reads
+      # whatever the warehouse currently holds, so running it after a partial
+      # failure either captures the day or rewrites a byte-identical file. A
+      # second error on an already-failed run is cheap; a missing day is not.
+      #
+      # And no env guard on the condition: a step skipped by a false `if`
+      # reports "skipped", indistinguishable from being skipped because an
+      # earlier step failed. archive_postings.py exits with "S3_BUCKET is not
+      # set" of its own accord, which is loud.
       - name: Archive postings to the data lake
-        if: ${{ env.S3_BUCKET != '' }}
+        id: archive
+        if: always()
         timeout-minutes: 15
-        run: python storage/archive_postings.py
+        run: >-
+          bash scripts/run_step.sh "Archive postings to the data lake"
+          python storage/archive_postings.py
 
       - name: Extract technologies
-        run: python ai_layer/extract_tech.py
+        id: extract
+        run: >-
+          bash scripts/run_step.sh "Extract technologies"
+          python ai_layer/extract_tech.py
 
       # dbt_utils has to be installed before anything dbt runs. The models
       # use generate_surrogate_key for the star schema and star() to carry
@@ -295,16 +339,40 @@ jobs:
       # Gates the run. No retry: a failing check is a real problem, and
       # retrying only delays learning about it.
       - name: Data quality checks
-        run: python quality/expectations.py
+        id: quality
+        run: >-
+          bash scripts/run_step.sh "Data quality checks"
+          python quality/expectations.py
 
       - name: Export curated Parquet
-        run: python storage/export_parquet.py
+        id: parquet
+        run: >-
+          bash scripts/run_step.sh "Export curated Parquet"
+          python storage/export_parquet.py
 
+      # A run that skipped fourteen steps used to produce the same summary as a
+      # complete one: warehouse counts and nothing else. The step outcomes make
+      # a partial run legible at a glance, and they are the first thing to read
+      # when the run failed.
       - name: Summarise the run
         if: always()
         run: |
           {
             echo "## Daily pipeline"
+            echo ""
+            echo "| step | outcome |"
+            echo "| --- | --- |"
+            echo "| market snapshot | ${{ steps.snapshot.outcome || 'skipped' }} |"
+            echo "| aggregator ingest | ${{ steps.aggregator.outcome || 'skipped' }} |"
+            echo "| board ingest | ${{ steps.boards.outcome || 'skipped' }} |"
+            echo "| board discovery | ${{ steps.discover.outcome || 'skipped' }} |"
+            echo "| load aggregator | ${{ steps.load_aggregator.outcome || 'skipped' }} |"
+            echo "| load boards | ${{ steps.load_boards.outcome || 'skipped' }} |"
+            echo "| archive to data lake | ${{ steps.archive.outcome || 'skipped' }} |"
+            echo "| extract technologies | ${{ steps.extract.outcome || 'skipped' }} |"
+            echo "| quality checks | ${{ steps.quality.outcome || 'skipped' }} |"
+            echo "| parquet export | ${{ steps.parquet.outcome || 'skipped' }} |"
+            echo ""
             python -c "
           import sys; sys.path.insert(0, 'storage')
           from db import connect

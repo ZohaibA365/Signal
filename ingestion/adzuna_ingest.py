@@ -74,7 +74,11 @@ SEARCH_TERMS = [
 
 # Be polite to a free-tier API.
 SLEEP_BETWEEN_CALLS = 1.0
-MAX_RETRIES = 3
+MAX_RETRIES = 4
+
+# Statuses worth trying again. 403 is here because Adzuna publishes no rate
+# limits and a throttle mid-run looks identical to a bad key from one response.
+RETRYABLE = {403, 429}
 
 
 def _require_env(name: str) -> str:
@@ -84,9 +88,30 @@ def _require_env(name: str) -> str:
     return value
 
 
+class FetchFailed(Exception):
+    """One page could not be fetched. Carries the status so callers can report it."""
+
+    def __init__(self, status: int | None, detail: str):
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
 def fetch_page(term: str, page: int, app_id: str, app_key: str,
                country: str = DEFAULT_COUNTRY) -> dict:
-    """Fetch one page of results, retrying on rate limits and transient errors."""
+    """
+    Fetch one page, retrying what is worth retrying.
+
+    403 is in the retryable set deliberately. Adzuna publishes no rate limits
+    and the daily volume here is around 300 calls - 51 technologies x 3 for the
+    market snapshot, plus up to 150 for this ingest - so a refusal partway
+    through a run is far more likely to be a throttle or a WAF blip than a
+    genuinely wrong key. A wrong key fails on the first call, and the caller
+    can tell the difference because nothing at all will have succeeded.
+
+    Raises FetchFailed rather than RuntimeError, so the caller can record the
+    failure and carry on instead of losing the rest of the run.
+    """
     params = {
         "app_id": app_id,
         "app_key": app_key,
@@ -95,31 +120,45 @@ def fetch_page(term: str, page: int, app_id: str, app_key: str,
         "content-type": "application/json",
     }
 
+    last = "no attempt made"
+    status = None
     for attempt in range(1, MAX_RETRIES + 1):
-        response = requests.get(
-            API_URL.format(country=country, page=page), params=params, timeout=30
-        )
+        try:
+            response = requests.get(
+                API_URL.format(country=country, page=page), params=params, timeout=30
+            )
+        except requests.RequestException as exc:
+            last = f"{type(exc).__name__}: {exc}"
+            log.warning("  %s on '%s' page %s - retry %s/%s", last, term, page,
+                        attempt, MAX_RETRIES)
+            time.sleep(2**attempt)
+            continue
 
-        if response.status_code == 200:
+        status = response.status_code
+        if status == 200:
             return response.json()
 
-        # 429 = rate limited, 5xx = Adzuna's problem. Both are worth retrying
-        # with exponential backoff. Anything else is our bug - fail loudly.
-        if response.status_code == 429 or response.status_code >= 500:
+        # 429 rate limited, 403 throttled or quota, 5xx Adzuna's problem.
+        if status in RETRYABLE or status >= 500:
+            # Honour Retry-After when the server bothers to send one; it knows
+            # better than an exponential guess.
             backoff = 2**attempt
+            retry_after = response.headers.get("Retry-After")
+            if retry_after and retry_after.isdigit():
+                backoff = min(int(retry_after), 60)
+            last = f"HTTP {status}: {response.text[:200]}"
             log.warning(
                 "  HTTP %s on '%s' page %s - retry %s/%s in %ss",
-                response.status_code, term, page, attempt, MAX_RETRIES, backoff,
+                status, term, page, attempt, MAX_RETRIES, backoff,
             )
             time.sleep(backoff)
             continue
 
-        raise RuntimeError(
-            f"Adzuna returned HTTP {response.status_code} for '{term}' page {page}: "
-            f"{response.text[:300]}"
-        )
+        raise FetchFailed(status, f"HTTP {status} for '{term}' page {page}: "
+                                  f"{response.text[:200]}")
 
-    raise RuntimeError(f"Adzuna failed after {MAX_RETRIES} retries for '{term}' page {page}")
+    raise FetchFailed(status, f"gave up after {MAX_RETRIES} retries for "
+                              f"'{term}' page {page} - {last}")
 
 
 def s3_key(term: str, page: int, ingest_date: str, country: str = DEFAULT_COUNTRY) -> str:
@@ -154,6 +193,70 @@ def existing_keys(s3, bucket: str, ingest_date: str, country: str) -> set[str]:
         token = page.get("NextContinuationToken")
 
 
+def _annotate(level: str, message: str) -> None:
+    """A GitHub annotation, which is the only failure channel the public API returns."""
+    if os.getenv("GITHUB_ACTIONS"):
+        print(f"::{level}::{message.replace(chr(10), ' ')}")
+
+
+def report(total_postings: int, files_written: int, skipped: int, planned: int,
+           failures: list, args) -> None:
+    """
+    Say what the run actually did, and decide whether it failed.
+
+    Two things this fixes. First, a partial ingest is now reported rather than
+    thrown away: the process exits non-zero only when it achieved nothing at
+    all, because fourteen terms succeeding and one failing is a warning, not a
+    dead run.
+
+    Second, it stops --resume hiding a dead ingest. Three consecutive runs
+    "succeeded" at this step in 6, 7 and 9 seconds because every page was
+    already present for that date and the loop skipped all of them. Nothing in
+    the log distinguished that from genuinely ingesting 150 pages, so when the
+    next fresh date arrived and the ingest ran for real, its first actual
+    failure in days looked like a sudden regression.
+    """
+    log.info("Done. %s postings across %s files.", f"{total_postings:,}", files_written)
+    log.info("  planned %s pages | written %s | resumed %s | failed %s",
+             planned, files_written, skipped, len(failures))
+
+    if skipped and not files_written and not failures:
+        log.warning("  nothing to do: every one of %s pages was already present "
+                    "for this date", skipped)
+
+    if failures:
+        by_status: dict = {}
+        for _country, _term, _page, status, _detail in failures:
+            by_status[status] = by_status.get(status, 0) + 1
+        summary = ", ".join(f"HTTP {k}: {v}" for k, v in sorted(
+            by_status.items(), key=lambda kv: (kv[0] is None, kv[0])))
+        log.error("  %s term(s) failed (%s)", len(failures), summary)
+        for country, term, page, _status, detail in failures[:10]:
+            log.error("    %s/%s page %s -> %s", country, term, page, detail)
+
+    if os.getenv("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+            fh.write(f"\n**Aggregator ingest** - {total_postings:,} postings, "
+                     f"{files_written} written, {skipped} already present, "
+                     f"{len(failures)} failed of {planned} planned.\n")
+            for country, term, page, _status, detail in failures[:10]:
+                fh.write(f"- `{country}` / `{term}` page {page}: {detail}\n")
+
+    achieved_nothing = total_postings == 0 and skipped == 0
+
+    if failures and achieved_nothing:
+        # Every call failed and nothing was already present. That is a real
+        # outage - a revoked key, an exhausted quota, or Adzuna down - and it
+        # should be loud even though the step is continue-on-error.
+        _annotate("error", f"Adzuna ingest collected nothing: {len(failures)} "
+                           f"failures, first was {failures[0][4]}")
+        raise SystemExit(1)
+
+    if failures:
+        _annotate("warning", f"Adzuna ingest partially failed: {len(failures)} of "
+                             f"{planned} pages. First: {failures[0][4]}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest Adzuna job postings into S3")
     parser.add_argument("--pages", type=int, default=2, help="pages per search term (default 2)")
@@ -179,6 +282,7 @@ def main() -> None:
     total_postings = 0
     files_written = 0
     skipped = 0
+    failures: list[tuple[str, str, int, int | None, str]] = []
     planned = len(args.terms) * args.pages * len(args.country)
 
     for country in args.country:
@@ -200,7 +304,18 @@ def main() -> None:
                 log.info("  progress %s/%s pages, %s postings so far",
                          done, planned, f"{total_postings:,}")
 
-            payload = fetch_page(term, page, app_id, app_key, country)
+            try:
+                payload = fetch_page(term, page, app_id, app_key, country)
+            except FetchFailed as exc:
+                # Record and move to the next term. Previously this raised and
+                # abandoned every remaining term AND the second country,
+                # throwing away work already done - on 2026-09-10 that turned
+                # one bad call into a skipped board ingest, skipped loads and a
+                # permanently missing day of archive history.
+                failures.append((country, term, page, exc.status, exc.detail))
+                log.error("  %s/%s page %s FAILED: %s", country, term, page, exc.detail)
+                break
+
             results = payload.get("results", [])
 
             if not results:
@@ -241,8 +356,7 @@ def main() -> None:
             total_postings += len(results)
             time.sleep(SLEEP_BETWEEN_CALLS)
 
-    log.info("Done. %s postings across %s files (%s skipped as already present).",
-             f"{total_postings:,}", files_written, skipped)
+    report(total_postings, files_written, skipped, planned, failures, args)
 
 
 if __name__ == "__main__":
