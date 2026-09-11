@@ -88,9 +88,17 @@ PROFILES: dict[str, dict] = {
             "Data Platform Engineer", "Software Engineer (data-focused)",
         ],
         "location": {
-            "countries": ["United States"],
+            "countries": ["United States", "Canada"],
             "remote_ok": True,
-            "notes": "Open to any US location. Remote is acceptable.",
+            "notes": (
+                "Open to any US location, and to Canada. Remote is acceptable. "
+                "The two differ in difficulty, not desirability: a US role needs "
+                "an employer willing to sponsor a J-1, while a Canadian role "
+                "needs nothing at all, because this candidate is a Canadian "
+                "citizen. A Canadian posting is therefore the easier application, "
+                "not a worse one, and must never be treated as blocked on work "
+                "authorisation."
+            ),
         },
         "compensation": {"minimum": None, "notes": "Not a filter for an internship."},
         "skills": {

@@ -229,6 +229,22 @@ jobs:
           bash scripts/run_step.sh "Build history from the archive"
           python analytics/build_history.py
 
+      # Before the transform, not after: dbt reads company_employer_key as a
+      # source, so a mapping rebuilt afterwards would always be one run behind.
+      #
+      # This step is why 58% of companies showed no sponsorship evidence. The
+      # script existed but was in no workflow, so the mapping froze on 28 August
+      # while board discovery kept adding employers every morning - 1,226
+      # companies had never been offered to the matcher at all. Rebuilding reads
+      # only Postgres and takes about two seconds; the heavy XLSX and Spark path
+      # stays quarterly, which is how often new DOL quarters land.
+      - name: Rebuild the sponsorship mapping
+        id: dol_mapping
+        timeout-minutes: 10
+        run: >-
+          bash scripts/run_step.sh "Rebuild the sponsorship mapping"
+          python storage/load_dol.py --rebuild-mapping-only
+
       # dbt_utils has to be installed before anything dbt runs. The models
       # use generate_surrogate_key for the star schema and star() to carry
       # every column except the description through the marts, so without the
@@ -383,6 +399,7 @@ jobs:
             echo "| archive to data lake | ${{ steps.archive.outcome || 'skipped' }} |"
             echo "| extract technologies | ${{ steps.extract.outcome || 'skipped' }} |"
             echo "| build history | ${{ steps.history.outcome || 'skipped' }} |"
+            echo "| sponsorship mapping | ${{ steps.dol_mapping.outcome || 'skipped' }} |"
             echo "| quality checks | ${{ steps.quality.outcome || 'skipped' }} |"
             echo "| parquet export | ${{ steps.parquet.outcome || 'skipped' }} |"
             echo ""

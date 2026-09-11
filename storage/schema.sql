@@ -183,6 +183,24 @@ CREATE TABLE IF NOT EXISTS company_employer_key (
 );
 CREATE INDEX IF NOT EXISTS idx_company_employer_key ON company_employer_key (employer_key);
 
+-- Every DOL employer a company could plausibly be, so an ambiguous case can be
+-- reviewed rather than guessed.
+--
+-- The matcher used to take the lexicographically first candidate whenever a
+-- brand prefixed several legal entities. "Cognizant" resolved to COGNIZANT
+-- MOBILITY with 13 filings instead of COGNIZANT TECHNOLOGY SOLUTIONS with
+-- 15,274, out of 12 candidates, and only escaped publication because COGNIZANT
+-- has no space and so graded prefix_weak. Filing volume is not the tiebreak
+-- either: "Lucid Motors" prefixes LUCID with 842 filings, a different company
+-- from Lucid Group with 15. So ambiguity is recorded, not resolved.
+CREATE TABLE IF NOT EXISTS company_employer_candidates (
+    company_name TEXT    NOT NULL,
+    employer_key TEXT    NOT NULL,
+    filings      INTEGER,
+
+    PRIMARY KEY (company_name, employer_key)
+);
+
 -- Streaming: what the producer has already published. Deliberately a
 -- watermark over first_seen rather than consumer offsets - offsets track what
 -- was read, this tracks what exists, which is what survives a restart.

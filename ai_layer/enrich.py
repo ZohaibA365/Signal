@@ -70,10 +70,13 @@ class Assessment(BaseModel):
     """The structured verdict Claude returns for one posting."""
 
     eligibility: str = Field(
-        description="'blocked' if the posting requires US citizenship, an active "
-                    "security clearance, or existing work authorisation with no "
-                    "sponsorship; 'eligible' if a sponsored international student "
-                    "could hold it; 'unclear' if the text does not say."
+        description="'blocked' if the candidate legally cannot hold the role - US "
+                    "citizenship required, active security clearance required, or "
+                    "US work authorisation required with no sponsorship offered; "
+                    "'eligible' if they could hold it; 'unclear' if the text does "
+                    "not say. A Canadian posting is never 'blocked' on work "
+                    "authorisation grounds, because the candidate is a Canadian "
+                    "citizen."
     )
     eligibility_reason: str = Field(description="One sentence justifying the eligibility call.")
     sponsorship_signal: str = Field(
@@ -87,16 +90,29 @@ class Assessment(BaseModel):
     concerns: list[str] = Field(description="Short flags worth knowing before applying. May be empty.")
 
 
-SYSTEM_PROMPT = f"""You assess US job postings for one specific candidate.
+SYSTEM_PROMPT = f"""You assess job postings for one specific candidate. Postings
+come from both the United States and Canada, and the COUNTRY field tells you
+which. It changes the answer more than anything else in the posting.
 
 {as_prompt_context()}
 
 HOW TO SCORE
 
-Eligibility comes first. If a posting requires US citizenship or an active
-security clearance, it is 'blocked' no matter how well it otherwise matches -
-this candidate cannot hold it. Defence and government contractors frequently
-carry these requirements.
+Eligibility comes first, and it depends on the country.
+
+For a CANADIAN posting the candidate is a citizen with an unrestricted right to
+work. Work authorisation is simply not an issue: eligibility must NOT be
+'blocked' for needing sponsorship, a visa, or existing authorisation, and
+sponsorship_signal is irrelevant to whether they can hold the job. Only a
+genuine legal barrier - a Canadian security clearance the candidate cannot
+obtain, say - blocks a Canadian role. Canadian co-op postings are the EASIEST
+applications available to this candidate, not the hardest.
+
+For a US posting the candidate needs an employer willing to sponsor a J-1. If
+the posting requires US citizenship, an active US security clearance, or
+existing US work authorisation with no sponsorship offered, it is 'blocked' no
+matter how well it otherwise matches. Defence and government contractors
+frequently carry these requirements.
 
 The description text you receive is TRUNCATED to roughly 500 characters by the
 data source, so the legal and work-authorisation boilerplate that normally sits
@@ -115,7 +131,9 @@ fit_score should reflect how worth this candidate's limited application time the
 posting is. Weigh:
   - Term match. They need a Winter 2027 (Jan-Apr) internship. A Summer-only role
     is a poor fit even if the work is ideal. An internship posted for 2027 is
-    better than one for 2026, which has likely passed.
+    better than one for 2026, which has likely passed. Canadian postings often
+    say "co-op" rather than "internship" and name the term directly, as in
+    "Winter 2027 (Co-op)" - that is an exact match, not a different thing.
   - Seniority. They are a student. Senior, staff, and lead roles score near zero.
   - Skill overlap with Python, SQL, dbt, AWS, Docker, and pipeline work.
   - Eligibility. A blocked posting should score below 10 regardless of fit.
@@ -145,7 +163,7 @@ RELEVANT_TITLE = (
 
 def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
                      min_salary: int | None = None, linkable: bool = False,
-                     relevant: bool = False):
+                     relevant: bool = False, country: list[str] | None = None):
     """
     Roles that still need scoring, for one profile.
 
@@ -161,7 +179,7 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
     sql = """
         SELECT r.source, r.job_id, r.company_name, r.job_title, r.location_raw,
                r.location_state, r.posted_date::date, r.seniority, raw.description_raw,
-               r.salary_min, r.salary_is_predicted
+               r.salary_min, r.salary_is_predicted, r.country
         FROM {table} r
         -- The description lives once, in the raw layer. Carrying it through
         -- the marts stored it three times and filled the database.
@@ -185,6 +203,15 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
         # never shown - its link is country-gated and cannot be resolved - so
         # paying to score one buys nothing.
         sql += " AND r.link_tier = 'direct'"
+    if country:
+        # Its own filter because the two countries are scored against genuinely
+        # different rules: the candidate is a Canadian citizen, so a Canadian
+        # posting needs no sponsorship while a US one needs a J-1. Being able to
+        # re-score one set without paying for the other is exactly why this
+        # exists - the prompt was US-only and had marked 25 of 39 Canadian roles
+        # "blocked" for needing authorisation the candidate already has.
+        sql += " AND r.country = ANY(%(country)s)"
+        params["country"] = [c.lower() for c in country]
     if seniority:
         sql += " AND r.seniority = ANY(%(seniority)s)"
         params["seniority"] = seniority
@@ -206,7 +233,7 @@ def fetch_candidates(cur, seniority, limit, force, table: str, profile: str,
 
 def assess(client: anthropic.Anthropic, row, model: str = MODEL):
     (_src, _jid, company, title, location, state, posted, seniority,
-     description, salary_min, salary_predicted) = row
+     description, salary_min, salary_predicted, country) = row
 
     salary = "not stated"
     if salary_min:
@@ -217,6 +244,7 @@ def assess(client: anthropic.Anthropic, row, model: str = MODEL):
 
 Title: {title}
 Company: {company}
+COUNTRY: {"Canada" if (country or "").lower() == "ca" else "United States"}
 Location: {location}{f', {state}' if state else ''}
 Posted: {posted}
 Salary: {salary}
@@ -300,6 +328,8 @@ def main() -> None:
     ap.add_argument("--force", action="store_true", help="re-score already-scored postings")
     ap.add_argument("--linkable", action="store_true",
                     help="only postings with a working employer link (what the site shows)")
+    ap.add_argument("--country", nargs="+", metavar="CC",
+                    help="restrict to these country codes, e.g. ca us")
     ap.add_argument("--relevant", action="store_true",
                     help="only titles plausibly in scope for this profile")
     ap.add_argument("--workers", type=int, default=8,
@@ -328,7 +358,7 @@ def main() -> None:
         with conn.cursor() as cur:
             rows = fetch_candidates(cur, args.seniority, args.limit, args.force,
                                     args.table, ACTIVE_PROFILE, args.min_salary,
-                                    args.linkable, args.relevant)
+                                    args.linkable, args.relevant, args.country)
     finally:
         conn.close()
 

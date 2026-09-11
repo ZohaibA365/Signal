@@ -12,16 +12,32 @@ fuzzy. Exact-on-normalised is deliberate: a fuzzy match that silently pairs
 "Apple Inc" with "Big Apple Movers" would put a false sponsorship claim in
 front of a stranger, which is worse than reporting nothing.
 
+Two paths, because they have completely different cadences and the faster one
+was missing. New DOL quarters land four times a year, so the Parquet load is
+quarterly. But the company -> employer mapping has to be rebuilt whenever the
+corpus gains employers, which is every morning.
+
+It was not. This script appeared in no workflow, so company_employer_key froze
+on 28 August while board discovery kept adding companies: 1,226 of the 3,821
+companies in the corpus had never been offered to the matcher at all. That,
+not the matching logic, is most of why 58% of companies showed no sponsorship
+evidence - "Databricks, Inc." normalises to DATABRICKS, which is in the filing
+data with 547 filings, and matches the instant the mapping is rebuilt.
+
 Usage:
-    python storage/load_dol.py
+    python storage/load_dol.py                       # full: Parquet + mapping
+    python storage/load_dol.py --rebuild-mapping-only  # mapping from Postgres
 """
 
 from __future__ import annotations
 
+import argparse
+import bisect
 import glob
 import logging
 import os
 import sys
+from collections import Counter
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -76,6 +92,23 @@ CREATE TABLE IF NOT EXISTS company_employer_key (
 CREATE INDEX IF NOT EXISTS idx_company_employer_key ON company_employer_key (employer_key);
 -- The table predates match_type; CREATE IF NOT EXISTS will not add it.
 ALTER TABLE company_employer_key ADD COLUMN IF NOT EXISTS match_type TEXT;
+
+-- Every DOL employer a company could plausibly be, kept so an ambiguous case
+-- can be reviewed rather than guessed, and so "why does this company show no
+-- sponsorship" is an answerable question.
+--
+-- It exists because the previous code took hits[0] - lexicographically first -
+-- whenever a brand prefixed several legal entities. "Cognizant" resolved to
+-- COGNIZANT MOBILITY with 13 filings instead of COGNIZANT TECHNOLOGY SOLUTIONS
+-- with 15,274, out of 12 candidates. That only escaped publication because
+-- COGNIZANT has no space and so graded prefix_weak; a multi-word brand in the
+-- same position would have been stated as fact.
+CREATE TABLE IF NOT EXISTS company_employer_candidates (
+    company_name TEXT    NOT NULL,
+    employer_key TEXT    NOT NULL,
+    filings      INTEGER,
+    PRIMARY KEY (company_name, employer_key)
+);
 """
 
 COLUMNS = ["employer_key", "fiscal_year", "employer_name", "filings", "certified",
@@ -84,7 +117,98 @@ COLUMNS = ["employer_key", "fiscal_year", "employer_name", "filings", "certified
            "tech_soc_titles", "rank_in_year"]
 
 
-def main() -> None:
+def build_mapping(cur) -> None:
+    """
+    Rebuild company_employer_key from whatever is already in the warehouse.
+
+    Reads dol_employer_summary rather than the Parquet, so this runs daily in
+    about twenty seconds with no local data and no new dependency.
+    """
+    # trim() because stg_jobs.sql emits nullif(trim(company_name),'') and every
+    # model joins on that. 16 rows carried an untrimmed name that nothing
+    # downstream could ever match.
+    cur.execute("""
+        SELECT DISTINCT nullif(trim(company_name), '')
+        FROM raw_postings WHERE company_name IS NOT NULL
+    """)
+    companies = [c[0] for c in cur.fetchall() if c[0]]
+
+    cur.execute("SELECT employer_key, sum(filings) FROM dol_employer_summary GROUP BY 1")
+    filings_by_key = dict(cur.fetchall())
+    dol_keys = set(filings_by_key)
+    # Sorted once so prefix lookups do not rescan the whole set per company.
+    sorted_keys = sorted(dol_keys)
+
+    mapping, candidates = [], []
+    for company in companies:
+        key = normalise_employer(company)
+        if not key:
+            mapping.append((company, None, None))
+            continue
+        if key in dol_keys:
+            mapping.append((company, key, "exact"))
+            continue
+        # Prefix fallback: DOL files under legal entity names while job boards
+        # use brand names. Require a word boundary and a reasonably specific
+        # stem - a short key like "APPLE" would otherwise match "APPLE MOVERS"
+        # and put a false sponsorship claim in an email.
+        if len(key) >= 8:
+            i = bisect.bisect_left(sorted_keys, key)
+            hits = []
+            while i < len(sorted_keys) and sorted_keys[i].startswith(key):
+                if sorted_keys[i] == key or sorted_keys[i][len(key):len(key) + 1] == " ":
+                    hits.append(sorted_keys[i])
+                i += 1
+            if hits:
+                candidates += [(company, h, filings_by_key.get(h)) for h in hits]
+                if len(hits) > 1:
+                    # Ambiguous, so decide nothing. Recording a guess here is
+                    # what produced the Cognizant error, and filing volume is
+                    # not a tiebreak either: "Lucid Motors" prefixes LUCID with
+                    # 842 filings, which is a different company from Lucid
+                    # Group with 15. Volume may order a review queue. It may
+                    # never pick a winner.
+                    mapping.append((company, None, "prefix_ambiguous"))
+                    continue
+                # Confidence depends on how distinctive the brand name is.
+                # "CAPITAL ONE" -> "CAPITAL ONE SERVICES" is safe. A single
+                # generic word is not: sampling found "Lighthouse" ->
+                # "LIGHTHOUSE BEHAVIORAL SOLUTIONS" and "Invictus" ->
+                # "INVICTUS ACADEMY OF RICHMOND", different organisations
+                # entirely. The weak case is labelled so nothing downstream
+                # states it as fact in front of a stranger.
+                strong = " " in key
+                mapping.append((company, hits[0],
+                                "prefix_strong" if strong else "prefix_weak"))
+                continue
+        mapping.append((company, None, None))
+
+    cur.execute("TRUNCATE company_employer_key")
+    execute_values(cur,
+                   "INSERT INTO company_employer_key "
+                   "(company_name, employer_key, match_type) VALUES %s",
+                   mapping, page_size=1000)
+    cur.execute("TRUNCATE company_employer_candidates")
+    if candidates:
+        execute_values(cur,
+                       "INSERT INTO company_employer_candidates "
+                       "(company_name, employer_key, filings) VALUES %s",
+                       candidates, page_size=1000)
+
+    kinds = Counter(m[2] for m in mapping if m[2])
+    log.info("Mapped %s companies: %s exact, %s strong prefix, %s weak prefix, "
+             "%s ambiguous", f"{len(mapping):,}", f"{kinds['exact']:,}",
+             f"{kinds['prefix_strong']:,}", f"{kinds['prefix_weak']:,}",
+             f"{kinds['prefix_ambiguous']:,}")
+    log.info("Only exact and strong-prefix matches are safe to state as fact.")
+    if kinds["prefix_ambiguous"]:
+        log.info("%s companies prefix several legal entities and are left "
+                 "undecided; candidates recorded for review.",
+                 f"{kinds['prefix_ambiguous']:,}")
+
+
+def load_summary(cur) -> None:
+    """Replace dol_employer_summary from the Spark output. Quarterly."""
     files = glob.glob(f"{SUMMARY_DIR}/**/*.parquet", recursive=True)
     if not files:
         raise SystemExit(f"No parquet under {SUMMARY_DIR}/ - run processing/dol_spark.py first")
@@ -99,88 +223,57 @@ def main() -> None:
     summary = pd.concat(frames, ignore_index=True)
     log.info("Read %s employer-year rows from %s files", f"{len(summary):,}", len(files))
 
+    rows = [tuple(
+        list(r[c]) if c == "tech_soc_titles" and r[c] is not None else
+        (None if pd.isna(r[c]) else r[c]) if c != "tech_soc_titles" else []
+        for c in COLUMNS
+    ) for _, r in summary.iterrows()]
+
+    cur.execute("TRUNCATE dol_employer_summary")
+    execute_values(cur, f"INSERT INTO dol_employer_summary ({','.join(COLUMNS)}) VALUES %s",
+                   rows, page_size=500)
+    log.info("Loaded %s employer-year rows", f"{len(rows):,}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Load DOL filings and match them to companies")
+    ap.add_argument("--rebuild-mapping-only", action="store_true",
+                    help="rebuild the company mapping from Postgres; skip the Parquet load")
+    args = ap.parse_args()
+
     conn = connect()
     log.info("Writing to %s", describe())
     with conn, conn.cursor() as cur:
         cur.execute(DDL)
+        if not args.rebuild_mapping_only:
+            load_summary(cur)
+        build_mapping(cur)
 
-        rows = [tuple(
-            list(r[c]) if c == "tech_soc_titles" and r[c] is not None else
-            (None if pd.isna(r[c]) else r[c]) if c != "tech_soc_titles" else []
-            for c in COLUMNS
-        ) for _, r in summary.iterrows()]
-
-        cur.execute("TRUNCATE dol_employer_summary")
-        execute_values(cur, f"INSERT INTO dol_employer_summary ({','.join(COLUMNS)}) VALUES %s",
-                       rows, page_size=500)
-        log.info("Loaded %s employer-year rows", f"{len(rows):,}")
-
-        # Build the canonical key for every company we have postings for.
-        cur.execute("SELECT DISTINCT company_name FROM raw_postings WHERE company_name IS NOT NULL")
-        companies = [c[0] for c in cur.fetchall()]
-        cur.execute("SELECT DISTINCT employer_key FROM dol_employer_summary")
-        dol_keys = {k[0] for k in cur.fetchall()}
-
-        # Sorted once so prefix lookups do not rescan the whole set per company.
-        sorted_keys = sorted(dol_keys)
-
-        mapping = []
-        for company in companies:
-            key = normalise_employer(company)
-            if not key:
-                mapping.append((company, None, None))
-                continue
-            if key in dol_keys:
-                mapping.append((company, key, "exact"))
-                continue
-            # Prefix fallback: DOL files under legal entity names while job
-            # boards use brand names. Require a word boundary and a reasonably
-            # specific stem - a short key like "APPLE" would otherwise match
-            # "APPLE MOVERS" and put a false sponsorship claim in an email.
-            if len(key) >= 8:
-                import bisect
-                i = bisect.bisect_left(sorted_keys, key)
-                hits = []
-                while i < len(sorted_keys) and sorted_keys[i].startswith(key):
-                    if sorted_keys[i] == key or sorted_keys[i][len(key):len(key) + 1] == " ":
-                        hits.append(sorted_keys[i])
-                    i += 1
-                if hits:
-                    # Confidence depends on how distinctive the brand name is.
-                    # "CAPITAL ONE" -> "CAPITAL ONE NATIONAL ASSOCIATION" is
-                    # safe. A single generic word is not: sampling found
-                    # "Lighthouse" -> "LIGHTHOUSE BEHAVIORAL SOLUTIONS" and
-                    # "Invictus" -> "INVICTUS ACADEMY OF RICHMOND", which are
-                    # different organisations entirely. Rather than guess, the
-                    # weak case is labelled so nothing downstream states it as
-                    # fact in front of a stranger.
-                    strong = " " in key
-                    mapping.append((company, hits[0],
-                                    "prefix_strong" if strong else "prefix_weak"))
-                    continue
-            mapping.append((company, None, None))
-
-        cur.execute("TRUNCATE company_employer_key")
-        execute_values(cur,
-                       "INSERT INTO company_employer_key "
-                       "(company_name, employer_key, match_type) VALUES %s",
-                       mapping, page_size=1000)
-        from collections import Counter
-        kinds = Counter(m[2] for m in mapping if m[2])
-        log.info("Match confidence: %s exact, %s strong prefix, %s weak prefix",
-                 f"{kinds['exact']:,}", f"{kinds['prefix_strong']:,}",
-                 f"{kinds['prefix_weak']:,}")
-        log.info("Only exact and strong-prefix matches are safe to state as fact.")
+        # Reported two ways, because they answer different questions. The
+        # company count says how complete the mapping is; the posting-weighted
+        # share says what a visitor actually encounters, since one matched
+        # employer with 500 postings matters more than fifty with one each.
+        cur.execute("""
+            SELECT count(*) FILTER (WHERE match_type IN ('exact','prefix_strong')),
+                   count(*)
+            FROM company_employer_key
+        """)
+        confident, total = cur.fetchone()
+        log.info("Confident mapping for %s of %s companies (%.1f%%)",
+                 f"{confident:,}", f"{total:,}", 100.0 * confident / max(total, 1))
 
         cur.execute("""
-            SELECT count(*) FILTER (WHERE d.employer_key IS NOT NULL), count(*)
-            FROM company_employer_key c
-            LEFT JOIN (SELECT DISTINCT employer_key FROM dol_employer_summary) d
-                   ON d.employer_key = c.employer_key
+            SELECT count(*) FILTER (
+                       WHERE c.match_type IN ('exact','prefix_strong')),
+                   count(*)
+            FROM raw_postings r
+            LEFT JOIN company_employer_key c
+                   ON c.company_name = nullif(trim(r.company_name), '')
         """)
-        matched, total = cur.fetchone()
-        log.info("Matched %s of %s companies to a sponsoring employer (%.1f%%)",
-                 f"{matched:,}", f"{total:,}", 100.0 * matched / total)
+        pw_matched, pw_total = cur.fetchone()
+        log.info("Postings whose employer has confident sponsorship evidence: "
+                 "%s of %s (%.1f%%)", f"{pw_matched:,}", f"{pw_total:,}",
+                 100.0 * pw_matched / max(pw_total, 1))
 
     conn.close()
 
