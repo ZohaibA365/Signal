@@ -193,6 +193,26 @@ CREATE INDEX IF NOT EXISTS idx_company_employer_key ON company_employer_key (emp
 -- has no space and so graded prefix_weak. Filing volume is not the tiebreak
 -- either: "Lucid Motors" prefixes LUCID with 842 filings, a different company
 -- from Lucid Group with 15. So ambiguity is recorded, not resolved.
+-- Which DOL legal entities belong to one employer. One row per link, because a
+-- company can own several, and sponsorship totals are summed over this rather
+-- than read from a single key.
+--
+-- company_employer_key answers "what do we know about this company" and holds
+-- one row each. This answers "which entities are it". Reading one key
+-- understated the largest employers by two to six times: Capital One files as
+-- CAPITAL ONE SERVICES (1,029 filings) and CAPITAL ONE NATIONAL ASSOCIATION
+-- (523), PwC across five entities totalling 1,778, Cognizant across four
+-- totalling 15,355.
+CREATE TABLE IF NOT EXISTS company_employer_link (
+    company_name TEXT NOT NULL,
+    employer_key TEXT NOT NULL,
+    match_type   TEXT NOT NULL,
+
+    PRIMARY KEY (company_name, employer_key)
+);
+CREATE INDEX IF NOT EXISTS idx_company_employer_link_company
+    ON company_employer_link (company_name);
+
 CREATE TABLE IF NOT EXISTS company_employer_candidates (
     company_name TEXT    NOT NULL,
     employer_key TEXT    NOT NULL,

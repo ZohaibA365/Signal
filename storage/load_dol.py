@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import csv
 import glob
 import logging
 import os
@@ -111,6 +112,25 @@ CREATE TABLE IF NOT EXISTS company_identity (
     canonical_name TEXT NOT NULL
 );
 
+-- Which DOL legal entities belong to one employer. One row per link, so a
+-- company can own several.
+--
+-- company_employer_key above answers "what do we know about this company" and
+-- holds one row each; this answers "which entities are it" and is what
+-- sponsorship totals are summed over. Picking a single entity understates badly:
+-- Capital One files as CAPITAL ONE SERVICES (1,029) and CAPITAL ONE NATIONAL
+-- ASSOCIATION (523), PwC across five entities totalling 1,778, and Cognizant
+-- across four totalling 15,355.
+CREATE TABLE IF NOT EXISTS company_employer_link (
+    company_name TEXT NOT NULL,
+    employer_key TEXT NOT NULL,
+    match_type   TEXT NOT NULL,
+
+    PRIMARY KEY (company_name, employer_key)
+);
+CREATE INDEX IF NOT EXISTS idx_company_employer_link_company
+    ON company_employer_link (company_name);
+
 CREATE TABLE IF NOT EXISTS company_employer_candidates (
     company_name TEXT    NOT NULL,
     employer_key TEXT    NOT NULL,
@@ -123,6 +143,40 @@ COLUMNS = ["employer_key", "fiscal_year", "employer_name", "filings", "certified
            "certified_pct", "tech_filings", "tech_pct", "distinct_titles",
            "distinct_states", "median_wage", "p25_wage", "p75_wage", "max_wage",
            "tech_soc_titles", "rank_in_year"]
+
+
+ALIASES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "employer_aliases.csv")
+
+
+def load_aliases() -> tuple[dict[str, list[str]], set[tuple[str, str]]]:
+    """
+    Hand-written company -> DOL entity decisions, accepted and rejected.
+
+    The cheapest high-precision recall available, and it needs no machinery. The
+    automated rules cannot reach these at all: Esri files as ENVIRONMENTAL
+    SYSTEMS RESEARCH INSTITUTE ESRI, PwC as PRICEWATERHOUSECOOPERS and four PWC
+    entities, Oracle as ORACLE AMERICA. Brands shorter than the eight-character
+    prefix floor - Oracle, TD Bank, BMO - are invisible to it by design, because
+    lowering that floor lets APPLE match APPLE MOVERS.
+
+    Rejections are recorded as firmly as acceptances, so a pair judged wrong
+    once is never offered again. Accenture Federal Services is not the Accenture
+    with 4,055 filings - it is the cleared-federal entity - and "Lucid Motors"
+    prefixes LUCID, which has 842 filings and is a different company from Lucid
+    Group with 15. Both would be plausible guesses. Both are wrong.
+    """
+    accepts: dict[str, list[str]] = {}
+    rejects: set[tuple[str, str]] = set()
+    if not os.path.exists(ALIASES):
+        return accepts, rejects
+    with open(ALIASES, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            company, key = row["company_name"].strip(), row["employer_key"].strip()
+            if row["verdict"].strip() == "accept":
+                accepts.setdefault(company, []).append(key)
+            else:
+                rejects.add((company, key))
+    return accepts, rejects
 
 
 def build_mapping(cur) -> None:
@@ -155,14 +209,30 @@ def build_mapping(cur) -> None:
     # Sorted once so prefix lookups do not rescan the whole set per company.
     sorted_keys = sorted(dol_keys)
 
-    mapping, candidates = [], []
+    accepts, rejects = load_aliases()
+    unknown = {k for ks in accepts.values() for k in ks} - dol_keys
+    if unknown:
+        # A typo in the alias file would silently remove evidence rather than
+        # add it, so it fails loudly instead.
+        raise SystemExit("employer_aliases.csv names keys that do not exist in "
+                         f"dol_employer_summary: {sorted(unknown)}")
+
+    mapping, candidates, links = [], [], []
     for company in companies:
+        # Hand-written decisions win over every rule, in both directions.
+        if company in accepts:
+            keys = accepts[company]
+            links += [(company, k, "alias_seed") for k in keys]
+            mapping.append((company, keys[0] if len(keys) == 1 else None, "alias_seed"))
+            continue
+
         key = normalise_employer(company)
         if not key:
             mapping.append((company, None, None))
             continue
         if key in dol_keys:
             mapping.append((company, key, "exact"))
+            links.append((company, key, "exact"))
             continue
         # Prefix fallback: DOL files under legal entity names while job boards
         # use brand names. Require a word boundary and a reasonably specific
@@ -176,7 +246,10 @@ def build_mapping(cur) -> None:
                     hits.append(sorted_keys[i])
                 i += 1
             if hits:
+                # A pair judged wrong once is never offered for review again.
+                hits = [h for h in hits if (company, h) not in rejects]
                 candidates += [(company, h, filings_by_key.get(h)) for h in hits]
+            if hits:
                 if len(hits) > 1:
                     # Ambiguous, so decide nothing. Recording a guess here is
                     # what produced the Cognizant error, and filing volume is
@@ -196,6 +269,8 @@ def build_mapping(cur) -> None:
                 strong = " " in key
                 mapping.append((company, hits[0],
                                 "prefix_strong" if strong else "prefix_weak"))
+                if strong:
+                    links.append((company, hits[0], "prefix_strong"))
                 continue
         mapping.append((company, None, None))
 
@@ -204,6 +279,13 @@ def build_mapping(cur) -> None:
                    "INSERT INTO company_employer_key "
                    "(company_name, employer_key, match_type) VALUES %s",
                    mapping, page_size=1000)
+    cur.execute("TRUNCATE company_employer_link")
+    if links:
+        execute_values(cur,
+                       "INSERT INTO company_employer_link "
+                       "(company_name, employer_key, match_type) VALUES %s",
+                       links, page_size=1000)
+
     cur.execute("TRUNCATE company_employer_candidates")
     if candidates:
         execute_values(cur,
@@ -212,11 +294,15 @@ def build_mapping(cur) -> None:
                        candidates, page_size=1000)
 
     kinds = Counter(m[2] for m in mapping if m[2])
-    log.info("Mapped %s companies: %s exact, %s strong prefix, %s weak prefix, "
-             "%s ambiguous", f"{len(mapping):,}", f"{kinds['exact']:,}",
+    log.info("Mapped %s companies: %s exact, %s alias, %s strong prefix, "
+             "%s weak prefix, %s ambiguous", f"{len(mapping):,}",
+             f"{kinds['exact']:,}", f"{kinds['alias_seed']:,}",
              f"{kinds['prefix_strong']:,}", f"{kinds['prefix_weak']:,}",
              f"{kinds['prefix_ambiguous']:,}")
-    log.info("Only exact and strong-prefix matches are safe to state as fact.")
+    log.info("%s entity links across %s companies (aliases contribute %s)",
+             f"{len(links):,}", f"{len({x[0] for x in links}):,}",
+             f"{sum(1 for x in links if x[2] == 'alias_seed'):,}")
+    log.info("Only exact, alias and strong-prefix links are stated as fact.")
     if kinds["prefix_ambiguous"]:
         log.info("%s companies prefix several legal entities and are left "
                  "undecided; candidates recorded for review.",
@@ -270,9 +356,8 @@ def main() -> None:
         # share says what a visitor actually encounters, since one matched
         # employer with 500 postings matters more than fifty with one each.
         cur.execute("""
-            SELECT count(*) FILTER (WHERE match_type IN ('exact','prefix_strong')),
-                   count(*)
-            FROM company_employer_key
+            SELECT count(DISTINCT company_name), (SELECT count(*) FROM company_employer_key)
+            FROM company_employer_link
         """)
         confident, total = cur.fetchone()
         log.info("Confident mapping for %s of %s companies (%.1f%%)",
@@ -280,12 +365,13 @@ def main() -> None:
 
         cur.execute("""
             SELECT count(*) FILTER (
-                       WHERE c.match_type IN ('exact','prefix_strong')),
+                       WHERE c.match_type IS NOT NULL),
                    count(*)
             FROM raw_postings r
             LEFT JOIN company_identity ci
                    ON ci.company_name = nullif(trim(r.company_name), '')
-            LEFT JOIN company_employer_key c
+            LEFT JOIN (SELECT DISTINCT company_name, 'y'::text AS match_type
+                       FROM company_employer_link) c
                    ON c.company_name = coalesce(ci.canonical_name,
                                                 nullif(trim(r.company_name), ''))
         """)

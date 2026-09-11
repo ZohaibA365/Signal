@@ -54,14 +54,26 @@ class FakeCursor:
 
 
 def run(companies, filings_by_key, monkeypatch):
-    """Run build_mapping against fakes and return (mapping, candidates)."""
+    """
+    Run build_mapping against fakes and return (mapping, candidates).
+
+    The real alias file is stubbed out. These tests exercise the mechanical
+    rules against tiny fake filing sets, and the loader fails loudly when an
+    alias names a key that does not exist - which every shipped alias does, in
+    a fake set of three keys. Aliases have their own tests further down.
+    """
     captured = {}
 
     def fake_execute_values(cur, sql, rows, page_size=None):
-        key = "mapping" if "company_employer_key" in sql else "candidates"
-        captured[key] = rows
+        if "company_employer_link" in sql:
+            captured["links"] = rows
+        elif "company_employer_key" in sql:
+            captured["mapping"] = rows
+        else:
+            captured["candidates"] = rows
 
     monkeypatch.setattr(load_dol, "execute_values", fake_execute_values)
+    monkeypatch.setattr(load_dol, "load_aliases", lambda: ({}, set()))
     load_dol.build_mapping(FakeCursor(companies, filings_by_key))
     return ({m[0]: (m[1], m[2]) for m in captured.get("mapping", [])},
             captured.get("candidates", []))
@@ -267,3 +279,115 @@ def test_every_input_name_appears_in_the_output():
     """
     rows = [("Stripe, Inc.", 50), ("Stripe", 10), ("Figma, Inc.", 70)]
     assert {n for n, _k, _c in resolve(rows)} == {r[0] for r in rows}
+
+
+# ------------------------------------------------------- hand-written aliases
+#
+# The cheapest high-precision recall in the project: 31 lines of CSV added nine
+# percentage points of posting coverage, from 50.7% to 59.7%. The automated
+# rules cannot reach these at all - Esri files as ENVIRONMENTAL SYSTEMS RESEARCH
+# INSTITUTE ESRI - and brands shorter than the eight-character prefix floor
+# (Oracle, TD Bank, BMO) are invisible to it by design.
+
+
+def run_links(companies, filings_by_key, monkeypatch, aliases=None):
+    """As run(), but returns the one-to-many entity links as well."""
+    captured = {}
+
+    def fake_execute_values(cur, sql, rows, page_size=None):
+        if "company_employer_link" in sql:
+            captured["links"] = rows
+        elif "company_employer_key" in sql:
+            captured["mapping"] = rows
+        else:
+            captured["candidates"] = rows
+
+    monkeypatch.setattr(load_dol, "execute_values", fake_execute_values)
+    if aliases is not None:
+        monkeypatch.setattr(load_dol, "load_aliases", lambda: aliases)
+    load_dol.build_mapping(FakeCursor(companies, filings_by_key))
+    return ({m[0]: (m[1], m[2]) for m in captured.get("mapping", [])},
+            captured.get("links", []))
+
+
+def test_one_company_can_own_several_entities(monkeypatch):
+    """
+    Capital One files as two legal entities. Reading one key reported 1,029
+    filings instead of 1,552; PwC 201 instead of 1,778; Cognizant 15,274
+    instead of 15,355.
+    """
+    aliases = ({"Capital One": ["CAPITAL ONE SERVICES",
+                                "CAPITAL ONE NATIONAL ASSOCIATION"]}, set())
+    _mapping, links = run_links(
+        ["Capital One"],
+        {"CAPITAL ONE SERVICES": 1029, "CAPITAL ONE NATIONAL ASSOCIATION": 523},
+        monkeypatch, aliases)
+    assert sorted(k for _c, k, _t in links) == ["CAPITAL ONE NATIONAL ASSOCIATION",
+                                                "CAPITAL ONE SERVICES"]
+    assert {t for _c, _k, t in links} == {"alias_seed"}
+
+
+def test_a_rejected_alias_is_never_linked(monkeypatch):
+    """
+    Accenture Federal Services is the cleared-federal entity and is not the
+    Accenture with 4,055 filings. A rejection has to be as durable as an accept,
+    or the pair comes back for review every run.
+    """
+    aliases = ({}, {("Accenture Federal Services", "ACCENTURE")})
+    _mapping, links = run_links(["Accenture Federal Services"],
+                                {"ACCENTURE": 4055}, monkeypatch, aliases)
+    assert links == []
+
+
+def test_rejected_pairs_are_dropped_from_the_review_queue(monkeypatch):
+    """A decision made once should not be offered again."""
+    captured = {}
+
+    def fake_execute_values(cur, sql, rows, page_size=None):
+        if "candidates" in sql:
+            captured["candidates"] = rows
+
+    monkeypatch.setattr(load_dol, "execute_values", fake_execute_values)
+    monkeypatch.setattr(load_dol, "load_aliases",
+                        lambda: ({}, {("Lucid Motors", "LUCID SOFTWARE")}))
+    load_dol.build_mapping(FakeCursor(
+        ["Lucid Motors"], {"LUCID MOTORS GROUP": 15, "LUCID SOFTWARE": 22}))
+    keys = {k for _c, k, _f in captured.get("candidates", [])}
+    assert "LUCID SOFTWARE" not in keys
+
+
+def test_only_trusted_match_types_become_links(monkeypatch):
+    """
+    prefix_weak and prefix_ambiguous must never reach the link table, because
+    that table is what sponsorship totals are summed over. Defence in depth: the
+    dbt gate also filters, but a row that never exists cannot be published by a
+    mistaken gate.
+    """
+    _mapping, links = run_links(
+        ["Lighthouse", "Cognizant"],
+        {"LIGHTHOUSE BEHAVIORAL SOLUTIONS": 4,
+         "COGNIZANT A": 5, "COGNIZANT B": 9},
+        monkeypatch, ({}, set()))
+    assert links == []
+
+
+def test_a_typo_in_the_alias_file_fails_loudly(monkeypatch):
+    """
+    An alias naming a key that does not exist would silently remove evidence
+    rather than add it, so it stops the run instead.
+    """
+    aliases = ({"Oracle": ["ORACLE AMERCIA"]}, set())   # deliberate typo
+    with pytest.raises(SystemExit) as exc:
+        run_links(["Oracle"], {"ORACLE AMERICA": 1599}, monkeypatch, aliases)
+    assert "ORACLE AMERCIA" in str(exc.value)
+
+
+def test_the_shipped_alias_file_parses_and_is_internally_consistent():
+    """
+    The committed file itself, not a fixture. Every row needs a verdict the
+    loader understands, and no pair may be both accepted and rejected.
+    """
+    accepts, rejects = load_dol.load_aliases()
+    assert accepts, "the shipped alias file should not be empty"
+    pairs = {(c, k) for c, ks in accepts.items() for k in ks}
+    assert not (pairs & rejects), "a pair is both accepted and rejected"

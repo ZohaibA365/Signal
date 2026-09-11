@@ -23,3 +23,21 @@ sources:
         columns:
           - name: company_name
             tests: [not_null, unique]
+
+      - name: company_employer_link
+        description: >
+          One row per (company, DOL legal entity) the matcher or a human
+          accepted. A company can own several - Capital One files under two
+          entities, PwC five, Cognizant four - so sponsorship totals are summed
+          over this rather than read from a single key, which understated the
+          largest employers by two to six times.
+        columns:
+          - name: company_name
+            tests: [not_null]
+          - name: employer_key
+            tests: [not_null]
+          - name: match_type
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ['exact', 'alias_seed', 'prefix_strong']

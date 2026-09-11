@@ -99,13 +99,32 @@
   <p>
     Matching those to job postings is the hard part: boards say "Capital One", the
     government says "CAPITAL ONE NATIONAL ASSOCIATION". Names are normalised and matched
-    exactly, with a guarded fallback for legal-entity prefixes.
+    exactly, with a guarded fallback for legal-entity prefixes, and a hand-written list
+    for the cases no rule can reach — Esri files as "ENVIRONMENTAL SYSTEMS RESEARCH
+    INSTITUTE ESRI", and short brands like Oracle and TD Bank sit below the length floor
+    that stops "Apple" matching "Apple Movers".
+  </p>
+  <p>
+    One employer often files under several legal entities, so the filings are summed
+    across all of them rather than read from one. Capital One files under two, PwC under
+    five, Cognizant under four — reading a single entity understated the largest employers
+    by two to six times.
   </p>
   <p class="note warn">
-    Confidence is graded rather than assumed. Sampling the prefix matches found
-    "Lighthouse" resolving to "LIGHTHOUSE BEHAVIORAL SOLUTIONS" — different organisations.
-    Only exact and multi-word matches are ever stated as fact; {{ stats.verified_sponsors | fmt }}
-    employers qualify.
+    Confidence is graded rather than assumed, and ambiguity is left undecided rather than
+    guessed. "Cognizant" prefixes twelve different legal entities, and the alphabetically
+    first has 13 filings against the right one's 15,274 — so where a brand matches several
+    entities, nothing is claimed until a person has looked. Sampling also found
+    "Lighthouse" resolving to "LIGHTHOUSE BEHAVIORAL SOLUTIONS", which are different
+    organisations. {{ stats.verified_sponsors | fmt }} employers qualify to be stated as
+    fact.
+  </p>
+  <p class="note">
+    A company with no match is reported as having none, not as not sponsoring. Employers
+    file under legal names that do not always resolve to the name on a job posting. But
+    some absences are real and worth trusting: the two largest unmatched employers here
+    appear nowhere in the filings under any name, because export-control rules require
+    them to hire US persons only.
   </p>
 
 

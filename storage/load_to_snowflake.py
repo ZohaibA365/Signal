@@ -49,6 +49,7 @@ TABLES = [
     "market_snapshot_salary",
     "dol_employer_summary",
     "company_employer_key",
+    "company_employer_link",
 ]
 
 

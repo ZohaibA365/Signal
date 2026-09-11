@@ -75,9 +75,24 @@ VALUES
     ('ACME DATA','2026','Acme Data Inc.',40,40,100.0,30,75.0,12,4,
      150000,130000,180000,220000,ARRAY['Software Developers'],12),
     ('GLOBEX ANALYTICS','2026','Globex Analytics LLC',5,4,80.0,3,60.0,3,1,
-     120000,110000,140000,160000,ARRAY['Data Scientists'],400);
+     120000,110000,140000,160000,ARRAY['Data Scientists'],400),
+    -- A second Acme entity, so the build exercises a company whose filings are
+    -- spread across more than one legal entity. Reading a single key would
+    -- report 40 filings here instead of 55, which is the failure that
+    -- understated Capital One, PwC and Cognizant on the live site.
+    ('ACME DATA SERVICES','2026','Acme Data Services LLC',15,15,100.0,10,66.7,5,2,
+     160000,140000,190000,210000,ARRAY['Software Developers'],30);
 
 INSERT INTO company_employer_key (company_name, employer_key, match_type) VALUES
     ('Acme Data','ACME DATA','exact'),
     ('Globex','GLOBEX ANALYTICS','prefix_strong'),
     ('Maple Systems', NULL, NULL);
+
+-- The link table is what sponsorship totals are summed over. Seeded to mirror
+-- the mapping above, plus a second entity for Acme Data so the CI build
+-- actually exercises a company that owns more than one.
+INSERT INTO company_employer_link (company_name, employer_key, match_type) VALUES
+    ('Acme Data', 'ACME DATA', 'exact'),
+    ('Acme Data', 'ACME DATA SERVICES', 'alias_seed'),
+    ('Globex', 'GLOBEX ANALYTICS', 'prefix_strong');
+
