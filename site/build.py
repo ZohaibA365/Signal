@@ -47,6 +47,13 @@ log = logging.getLogger("build")
 DIST = HERE / "dist"
 # Below this many days of collection, month-over-month comparisons
 # describe our ingest history rather than the market.
+#
+# Retained as the fallback only. The authoritative figure now comes from
+# hist_coverage, which counts days a real daily archive run actually covered -
+# the question this constant never asked. It compared distinct
+# market_snapshots.snapshot_date, while outreach/insights.py compared distinct
+# raw_postings.first_seen::date under the same name, and neither knew whether a
+# day's posting panel was complete.
 MIN_DAYS_FOR_TREND = 45
 SITE_URL = os.getenv("SITE_URL", "https://signal-jobs.dev")
 REPO_URL = "https://github.com/ZohaibA365/Signal"
@@ -70,6 +77,30 @@ def fetch_all(cur) -> dict:
         data[name] = rows
         log.info("  %-22s %s rows", name, f"{len(rows):,}")
     return data
+
+
+def fetch_optional(cur, data: dict) -> None:
+    """
+    Fetch the history queries, which may legitimately return nothing.
+
+    fetch_all() refuses to build when a query is empty, and that is right for
+    the core data. It is wrong for history: the panel only becomes usable after
+    enough complete days accumulate, so empty has to mean "say so on the page",
+    not "fail the build". The tables may also not exist yet on a warehouse that
+    has not run analytics/build_history.py, which must be equally survivable.
+    """
+    for name, sql in Q.may_be_empty.items():
+        try:
+            cur.execute(sql)
+            cols = [c.name for c in cur.description]
+            data[name] = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+        except Exception as exc:                      # noqa: BLE001 - any DB error
+            cur.connection.rollback()
+            data[name] = []
+            log.warning("  %-22s unavailable (%s)", name, str(exc).strip()[:80])
+            continue
+        log.info("  %-22s %s rows%s", name, f"{len(data[name]):,}",
+                 "  (no history yet)" if not data[name] else "")
 
 
 def peer_summary(peers: list[dict], c: dict) -> dict | None:
@@ -97,7 +128,7 @@ def peer_summary(peers: list[dict], c: dict) -> dict | None:
     }
 
 
-def headline_for(c: dict, peers: list[dict], collection_days: int) -> str | None:
+def headline_for(c: dict, peers: list[dict], trend_ok: bool) -> str | None:
     """
     The single strongest true observation about a company.
 
@@ -117,7 +148,7 @@ def headline_for(c: dict, peers: list[dict], collection_days: int) -> str | None
     total = c["total_postings"] or 0
     last30 = c["postings_last_30d"] or 0
 
-    if collection_days >= MIN_DAYS_FOR_TREND and (c["postings_prior_30d"] or 0) >= 10:
+    if trend_ok and (c["postings_prior_30d"] or 0) >= 10:
         prior = c["postings_prior_30d"]
         change = round(100.0 * (last30 - prior) / prior)
         if abs(change) >= 50:
@@ -133,6 +164,37 @@ def headline_for(c: dict, peers: list[dict], collection_days: int) -> str | None
     if total >= 40:
         return f"{total:,} tracked roles, {last30} of them posted in the last 30 days."
     return None
+
+
+def sparkline(rows: list[dict], key: str, width: int = 560, height: int = 90) -> dict | None:
+    """
+    An inline SVG polyline for a measured daily series.
+
+    Inline and hand-built because the site ships no JavaScript charting library
+    and should not start: the series is at most a few hundred points, and a
+    polyline is a handful of bytes against a charting bundle.
+
+    The y axis deliberately starts at the series minimum rather than zero. That
+    exaggerates variation, which would be misleading for a headline number, so
+    the caller renders the first and last values as text beside it - the shape
+    is the claim, the numbers are the evidence.
+    """
+    if len(rows) < 2:
+        return None
+    values = [r[key] or 0 for r in rows]
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1
+    step = width / (len(values) - 1)
+    points = " ".join(
+        f"{i * step:.1f},{height - ((v - lo) / span) * height:.1f}"
+        for i, v in enumerate(values)
+    )
+    return {
+        "points": points, "width": width, "height": height,
+        "first": values[0], "last": values[-1],
+        "low": lo, "high": hi, "days": len(values),
+        "start": rows[0]["observed_date"], "end": rows[-1]["observed_date"],
+    }
 
 
 def with_bars(rows: list[dict], key: str, limit: int | None = None) -> list[dict]:
@@ -165,6 +227,7 @@ def build(skip_pages: bool = False) -> None:
     cur = conn.cursor()
     log.info("Querying %s", describe())
     data = fetch_all(cur)
+    fetch_optional(cur, data)
     conn.close()
 
     # Clear the output first. Without this, pages removed from the site linger
@@ -266,8 +329,25 @@ def build(skip_pages: bool = False) -> None:
     # gated on this: with a short history, "last 30 days vs the 30 before"
     # measures the collection start date rather than the market.
     collection_days = fresh.get("days_of_history") or 0
+    # hist_coverage wins when it exists: it is the only source that distinguishes
+    # a day that was measured from a date that merely appears in the panel.
+    cov = (data.get("HISTORY_COVERAGE") or [{}])[0]
+    if cov:
+        trend_ok = bool(cov.get("trend_is_publishable"))
+        history_days = cov.get("measured_days") or 0
+    else:
+        trend_ok = collection_days >= MIN_DAYS_FOR_TREND
+        history_days = collection_days
+    log.info("  history: %s measured day(s), trend %s",
+             history_days, "publishable" if trend_ok else "suppressed")
+
+    pace_by_company = {r["company_name"]: r for r in data.get("COMPANY_PACE", [])}
+    history_by_tech: dict[str, list[dict]] = {}
+    for r in data.get("TECH_HISTORY", []):
+        history_by_tech.setdefault(r["tech_slug"], []).append(r)
     common = {
         "stats": stats, "freshness": fresh, "site_url": SITE_URL, "repo_url": REPO_URL,
+        "coverage": cov, "history_days": history_days, "trend_ok": trend_ok,
         "generated_at": datetime.now(UTC).strftime("%d %b %Y"),
     }
 
@@ -337,7 +417,8 @@ def build(skip_pages: bool = False) -> None:
                market_pos=[m for m in market_by_company.get(c["company_name"], [])
                            if m["mentions"] >= 2][:8],
                headline=headline_for(c, peers_by_company.get(c["company_name"], []),
-                                     collection_days))
+                                     trend_ok),
+               pace=pace_by_company.get(c["company_name"]))
 
     render("list.html", DIST / "companies" / "index.html", nav="companies", rel="../",
            canonical="/companies/",
@@ -377,7 +458,10 @@ def build(skip_pages: bool = False) -> None:
                    f"{t['tech_name']} in the US data and AI job market: "
                    f"{t['postings_mentioning']:,} postings and the tools it appears with."),
                t=t, employers=emp[:8], category_size=cat_sizes[t["category"]],
-               pairs=pairs_by_tech.get(t["tech_slug"], [])[:8])
+               pairs=pairs_by_tech.get(t["tech_slug"], [])[:8],
+               history=history_by_tech.get(t["tech_slug"], []),
+               spark=sparkline(history_by_tech.get(t["tech_slug"], []),
+                               "postings_mentioning"))
 
     render("list.html", DIST / "tech" / "index.html", nav="tech", rel="../",
            canonical="/tech/",

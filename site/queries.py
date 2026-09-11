@@ -220,3 +220,49 @@ LEFT JOIN salary_by_tech sal ON sal.tech_slug = ct.tech_slug
 WHERE NOT t.is_ubiquitous
 ORDER BY ct.company_name, ct.mentions DESC
 """
+
+
+# --- history, which may legitimately be empty --------------------------------
+#
+# Deliberately a lowercase dict rather than module-level uppercase names.
+# fetch_all() sweeps every uppercase attribute and refuses to build when one
+# returns no rows, which is the right rule for the core site data: a blank page
+# is worse than no page. It is the wrong rule here. The history layer is empty
+# until enough complete days accumulate - 0 of the 28 it needs, at the time of
+# writing - and an empty history has to render as "not enough history yet"
+# rather than fail the build.
+#
+# Computed by analytics/build_history.py over the S3 Parquet archive, because
+# the panel behind these numbers is ~54,000 rows a day and cannot live here.
+may_be_empty = {
+    # The authoritative depth of history. measured_days counts only days a real
+    # daily archive run covered, which is the one thing the two constants named
+    # MIN_DAYS_FOR_TREND never checked.
+    "HISTORY_COVERAGE": """
+        SELECT measured_days, panel_days, first_measured, last_measured,
+               min_measured_days_required, trend_is_publishable
+        FROM hist_coverage WHERE id = 1
+    """,
+
+    # median_days_open rests only on postings that stopped appearing; one still
+    # open has no end date and one predating collection looks younger than it
+    # is. closed_share says how much of the sample that is.
+    "COMPANY_PACE": """
+        SELECT company_name, postings_observed, first_observed, last_observed,
+               distinct_open_days, median_days_open, closed_share
+        FROM hist_company_pace
+    """,
+
+    # Measured mentions per day, as against tech_demand_history, which
+    # reconstructs months from posted_date over surviving postings and is
+    # survivorship biased by its own admission.
+    "TECH_HISTORY": """
+        SELECT observed_date, tech_slug, postings_mentioning
+        FROM hist_tech_daily ORDER BY observed_date
+    """,
+
+    "DAILY_ROLES": """
+        SELECT observed_date, country, open_roles, companies
+        FROM hist_daily_roles ORDER BY observed_date
+    """,
+}

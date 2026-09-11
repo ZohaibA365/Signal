@@ -18,6 +18,32 @@
   <div class="kpi"><b>{{ t.postings_mentioning | fmt }}</b><span>In our corpus</span></div>
 </div>
 
+{% if spark %}
+<h2>Measured demand over time</h2>
+<p>
+  Roles mentioning {{ t.tech_name }} that were actually open on each of the last
+  <b class="num">{{ spark.days }}</b> days:
+  <b class="num">{{ spark.first | fmt }}</b> on {{ spark.start }},
+  <b class="num">{{ spark.last | fmt }}</b> on {{ spark.end }}.
+</p>
+<div class="scroll">
+  <svg viewBox="0 0 {{ spark.width }} {{ spark.height }}" width="100%"
+       height="{{ spark.height }}" role="img"
+       aria-label="{{ t.tech_name }} open roles per day, {{ spark.low | fmt }} to {{ spark.high | fmt }}"
+       preserveAspectRatio="none">
+    <polyline points="{{ spark.points }}" fill="none" stroke="currentColor"
+              stroke-width="2" vector-effect="non-scaling-stroke" />
+  </svg>
+</div>
+<p class="note">
+  Counted from a daily record of which postings were still listed, so it reflects roles
+  open on each day rather than roles posted. The vertical axis starts at the period low
+  ({{ spark.low | fmt }}) rather than zero, which exaggerates the shape — the two numbers
+  above the chart are the actual values. Days on which the collection did not run a
+  complete pass are excluded rather than drawn as a dip.
+</p>
+{% endif %}
+
 {% if employers %}
 <h2>Who hires for it</h2>
 <div class="scroll">

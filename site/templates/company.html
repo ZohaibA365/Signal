@@ -57,6 +57,25 @@
 </p>
 {% endif %}
 
+{% if pace and pace.median_days_open %}
+<h2>How long their roles stay open</h2>
+<p>
+  Of <b class="num">{{ pace.postings_observed | fmt }}</b> roles observed on
+  {{ c.company_name }}'s board, the typical one that has since come down was open for
+  <b class="num">{{ pace.median_days_open | round | int }}</b> days.
+  {% if pace.closed_share %}
+  That median rests on the {{ (pace.closed_share * 100) | round | int }}% of the sample
+  that has actually closed.
+  {% endif %}
+</p>
+<p class="note">
+  Measured by checking each board daily and recording which postings are still listed,
+  not inferred from posted dates. Only roles that have stopped appearing count towards
+  the median: one still open has no end date yet, and one that was already open before
+  this started looks younger than it is. Both would pull the figure down.
+</p>
+{% endif %}
+
 {% if market_pos %}
 <h2>Their stack against the market</h2>
 <div class="scroll">

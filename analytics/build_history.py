@@ -166,14 +166,27 @@ def company_pace(d: duckdb.DuckDBPyConnection) -> list[tuple]:
     claim, and `closed_share` says how much of the sample supports it.
     """
     return d.execute(f"""
-        WITH lifespan AS (
+        -- Measured days only, like the other two models. An earlier version of
+        -- this function computed lifespans over the whole panel, which was the
+        -- exact mistake the coverage gate exists to prevent: with a backfill
+        -- contributing two sightings per posting, median_days_open is
+        -- meaningless and closed_share reads near 1.0 because almost every
+        -- posting's last sighting predates the panel's most recent date. It
+        -- reported 903 companies of confident nonsense. Restricting the source
+        -- here makes the model honest by construction rather than relying on a
+        -- caller to remember the check.
+        WITH covered AS (
+            SELECT p.*
+            FROM presence p
+            JOIN runs r ON r.observed_date = p.observed_date AND r.run_mode = 'daily'
+        ), lifespan AS (
             SELECT p.source, p.job_id,
                    min(p.observed_date)                  AS first_observed,
                    max(p.observed_date)                  AS last_observed,
                    count(DISTINCT p.observed_date)       AS days_observed
-            FROM presence p GROUP BY 1, 2
+            FROM covered p GROUP BY 1, 2
         ), latest AS (
-            SELECT max(observed_date) AS latest_day FROM presence
+            SELECT max(observed_date) AS latest_day FROM covered
         ), joined AS (
             SELECT a.company_name, a.country, l.*,
                    date_diff('day', l.first_observed, l.last_observed) AS days_open,

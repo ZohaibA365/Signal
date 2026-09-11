@@ -135,7 +135,7 @@ def test_tech_history_also_respects_coverage(monkeypatch):
 
 def test_thin_samples_are_not_published():
     """Two postings is not a hiring pace. The per-company floor excludes them."""
-    d = _db(markers=[("2026-09-05", "daily")], presence=[
+    d = _db(markers=[("2026-09-01", "daily"), ("2026-09-05", "daily")], presence=[
         ("board", "a", "2026-09-01", "first_seen"),
         ("board", "b", "2026-09-01", "first_seen"),
     ])
@@ -160,7 +160,8 @@ def test_median_days_open_uses_only_closed_postings():
     for i in range(4):          # still open on the latest day
         presence += [("board", f"o{i}", "2026-09-04", "first_seen"),
                      ("board", f"o{i}", "2026-09-05", "last_seen")]
-    rows = hist.company_pace(_db(markers=[("2026-09-05", "daily")], presence=presence))
+    covered = [(f"2026-09-{d:02d}", "daily") for d in range(1, 6)]
+    rows = hist.company_pace(_db(markers=covered, presence=presence))
 
     assert len(rows) == 1
     (_company, _country, postings, _first, _last,
@@ -176,3 +177,33 @@ def test_median_days_open_uses_only_closed_postings():
 def test_coverage_reports_everything_the_site_needs_to_decide(column):
     cov = hist.coverage(_db([], [("board", "j1", "2026-09-01", "last_seen")]))
     assert column in cov
+
+
+def test_company_pace_is_empty_without_measured_coverage():
+    """
+    The bug this pins was mine, and it is the exact failure the gate exists for.
+
+    company_pace originally computed lifespans over the whole panel while the
+    other two models filtered on run markers. Against a backfill - two sightings
+    per posting, nothing between - median_days_open is meaningless and
+    closed_share reads near 1.0, because almost every posting's last sighting
+    predates the panel's most recent date. It returned 903 companies of
+    confident nonsense, and nothing in the output said so.
+    """
+    presence = []
+    for i in range(12):                 # well clear of the per-company floor
+        presence += [("board", f"j{i}", "2026-08-23", "first_seen"),
+                     ("board", f"j{i}", "2026-09-09", "last_seen")]
+    assert hist.company_pace(_db(markers=[], presence=presence)) == []
+
+
+def test_every_model_is_gated_on_the_same_marker():
+    """
+    All three rate models must agree on what counts as a usable day. One of
+    them disagreeing is how the bug above happened, so this asserts the shared
+    filter is present in each rather than trusting each to remember it.
+    """
+    import inspect
+    for fn in (hist.daily_roles, hist.company_pace, hist.tech_daily):
+        src = inspect.getsource(fn)
+        assert "run_mode = 'daily'" in src, f"{fn.__name__} is not gated on coverage"
