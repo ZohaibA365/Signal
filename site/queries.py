@@ -261,6 +261,16 @@ may_be_empty = {
         FROM hist_tech_daily ORDER BY observed_date
     """,
 
+    # Names that used to have their own page and no longer do, so the old URL
+    # can redirect instead of 404ing. GitHub Pages has no server-side redirect
+    # layer, so build.py writes a canonical-link stub at each one.
+    "RETIRED_COMPANIES": """
+        SELECT ci.company_name, ci.canonical_name
+        FROM company_identity ci
+        JOIN dim_company c ON c.company_name = ci.canonical_name
+        WHERE ci.company_name <> ci.canonical_name
+    """,
+
     "DAILY_ROLES": """
         SELECT observed_date, country, open_roles, companies
         FROM hist_daily_roles ORDER BY observed_date

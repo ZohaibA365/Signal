@@ -166,6 +166,33 @@ def headline_for(c: dict, peers: list[dict], trend_ok: bool) -> str | None:
     return None
 
 
+def assert_unique_slugs(companies: list[dict]) -> None:
+    """
+    Refuse to publish when two companies want the same URL.
+
+    Pages render in descending posting order and write
+    companies/<slug>/index.html, so a shared slug meant the smaller company
+    silently replaced the larger. /companies/fivetran/ was written for
+    "FiveTran" with 177 postings and then overwritten by "Fivetran" with 29 -
+    the published page understated that employer six-fold and sitemap.xml
+    listed the URL twice. Nothing detected it.
+
+    Company names are canonicalised upstream now, so this should never fire.
+    That is exactly why it has to exist: a guard that only matters when
+    something else has already failed.
+    """
+    by_slug: dict[str, list[str]] = {}
+    for c in companies:
+        by_slug.setdefault(c["slug"], []).append(c["company_name"])
+    clashes = {k: v for k, v in by_slug.items() if len(v) > 1}
+    if not clashes:
+        return
+    for slug, names in sorted(clashes.items()):
+        log.error("  slug %r claimed by %s", slug, " and ".join(repr(n) for n in names))
+    raise SystemExit(f"{len(clashes)} company slug collision(s) - refusing to "
+                     f"publish a page that overwrites another")
+
+
 def sparkline(rows: list[dict], key: str, width: int = 560, height: int = 90) -> dict | None:
     """
     An inline SVG polyline for a measured daily series.
@@ -401,6 +428,12 @@ def build(skip_pages: bool = False) -> None:
     companies = data["COMPANIES"]
     for c in companies:
         c["slug"] = slugify(c["company_name"])
+
+    # Every slug assigned before any page is written, so a collision is caught
+    # before it can overwrite a page rather than after.
+    assert_unique_slugs(companies)
+
+    for c in companies:
         techs = sorted(tech_by_company.get(c["company_name"], []),
                        key=lambda r: -r["mentions"])[:10]
         roles = roles_by_company.get(c["company_name"], [])[:25]
@@ -419,6 +452,33 @@ def build(skip_pages: bool = False) -> None:
                headline=headline_for(c, peers_by_company.get(c["company_name"], []),
                                      trend_ok),
                pace=pace_by_company.get(c["company_name"]))
+
+    # Retired URLs. 33 employers were published as two pages each until company
+    # names were canonicalised; those slugs are now indexed and would 404.
+    # GitHub Pages has no redirect layer, so each gets a stub carrying a
+    # canonical link plus a meta refresh, which search engines treat as a
+    # consolidation signal. Retired slugs are left out of sitemap.xml.
+    live_slugs = {c["slug"] for c in companies}
+    retired = 0
+    for r in data.get("RETIRED_COMPANIES", []):
+        old_slug = slugify(r["company_name"])
+        new_slug = slugify(r["canonical_name"])
+        if old_slug == new_slug or old_slug in live_slugs:
+            continue
+        target = f"{SITE_URL}/companies/{new_slug}/"
+        out = DIST / "companies" / old_slug / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            f"<title>Moved to {r['canonical_name']} | Signal</title>"
+            f"<link rel=\"canonical\" href=\"{target}\">"
+            "<meta name=\"robots\" content=\"noindex,follow\">"
+            f"<meta http-equiv=\"refresh\" content=\"0; url={target}\">"
+            f"</head><body><p>{r['company_name']} is now listed as "
+            f"<a href=\"{target}\">{r['canonical_name']}</a>.</p></body></html>\n")
+        retired += 1
+    if retired:
+        log.info("  wrote %s redirect stub(s) for retired company URLs", retired)
 
     render("list.html", DIST / "companies" / "index.html", nav="companies", rel="../",
            canonical="/companies/",

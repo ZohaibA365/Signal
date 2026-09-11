@@ -90,7 +90,10 @@ def test_the_mapping_is_keyed_on_the_trimmed_name():
     """
     import inspect
     src = inspect.getsource(load_dol.build_mapping)
-    assert "trim(company_name)" in src
+    assert "trim(r.company_name)" in src
+    # And on the canonical name, or the 184 companies that company_identity
+    # merged would have a mapping key nothing downstream joins to.
+    assert "canonical_name" in src
 
 
 # ------------------------------------------------------- the ambiguity fix
@@ -193,3 +196,74 @@ def test_normaliser_is_the_same_function_on_both_sides():
     only where they happen to agree.
     """
     assert normalise_employer("Stripe, Inc.") == normalise_employer("STRIPE INC")
+
+
+# ------------------------------------------------- canonicalising company names
+#
+# 33 employers were published as two pages each, and three slugs collided
+# outright: /companies/fivetran/ was written for "FiveTran" with 177 postings
+# and then overwritten by "Fivetran" with 29, so the published page understated
+# that employer six-fold and sitemap.xml listed the URL twice.
+
+from resolve_companies import resolve  # noqa: E402
+
+
+def test_suffix_variants_collapse_to_one_employer():
+    rows = [("Databricks, Inc.", 494), ("Databricks", 90)]
+    out = {name: canonical for name, _key, canonical in resolve(rows)}
+    assert out["Databricks"] == "Databricks, Inc."
+    assert out["Databricks, Inc."] == "Databricks, Inc."
+
+
+def test_the_larger_page_keeps_its_url():
+    """
+    Canonical is the variant with the most postings, because that is the page
+    more likely to be indexed. Prettiness of the URL is not the criterion.
+    """
+    rows = [("Oracle", 1256), ("Oracle Corporation", 5)]
+    out = {n: c for n, _k, c in resolve(rows)}
+    assert set(out.values()) == {"Oracle"}
+
+
+def test_the_fivetran_collision():
+    """The case that was silently losing 148 postings from a published page."""
+    rows = [("FiveTran", 177), ("Fivetran", 29)]
+    out = {n: c for n, _k, c in resolve(rows)}
+    assert set(out.values()) == {"FiveTran"}
+
+
+def test_ties_break_deterministically():
+    """
+    Equal postings must not let row order decide, or the canonical name flips
+    between runs and every URL churns.
+    """
+    a = resolve([("Acme Inc.", 10), ("Acme", 10)])
+    b = resolve([("Acme", 10), ("Acme Inc.", 10)])
+    assert {n: c for n, _k, c in a} == {n: c for n, _k, c in b}
+    # Shortest name wins the tie.
+    assert {c for _n, _k, c in a} == {"Acme"}
+
+
+def test_different_companies_are_not_merged():
+    """
+    The whole risk of canonicalisation. These share a token and nothing else,
+    and must stay separate.
+    """
+    rows = [("Snap Inc.", 100), ("SnapLogic", 50),
+            ("Lucid Motors", 40), ("Lucid Software", 30)]
+    out = {n: c for n, _k, c in rows and resolve(rows)}
+    assert out["Snap Inc."] != out["SnapLogic"]
+    assert out["Lucid Motors"] != out["Lucid Software"]
+
+
+def test_blank_and_unnameable_rows_are_dropped():
+    assert resolve([("", 5), ("   ", 5), ("Inc.", 5)]) == []
+
+
+def test_every_input_name_appears_in_the_output():
+    """
+    stg_jobs left-joins this mapping, so a name missing from it silently falls
+    back to its raw spelling - which is the bug, not the fallback.
+    """
+    rows = [("Stripe, Inc.", 50), ("Stripe", 10), ("Figma, Inc.", 70)]
+    assert {n for n, _k, _c in resolve(rows)} == {r[0] for r in rows}

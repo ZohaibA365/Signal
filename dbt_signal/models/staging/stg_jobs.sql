@@ -45,7 +45,15 @@ cleaned as (
         source,
         job_id,
         country,
-        nullif(trim(company_name), '')          as company_name,
+        -- Canonicalised, so "Databricks" and "Databricks, Inc." are one
+        -- employer rather than two company pages, two peer computations and
+        -- two sponsorship lookups. The mapping is built in Python by
+        -- storage/resolve_companies.py with the same normaliser that
+        -- canonicalises both sides of the DOL join - one normaliser in one
+        -- language, rather than a second copy in SQL that would drift and
+        -- would have to survive three engines' differing string functions.
+        coalesce(ci.canonical_name, nullif(trim(source.company_name), ''))
+                                                as company_name,
         nullif(trim(job_title), '')             as job_title,
         location                                as location_raw,
         location_state,
@@ -102,11 +110,13 @@ cleaned as (
         (current_date - posted_date::date) > 60  as is_stale
 
     from source
+    left join {{ source('signal', 'company_identity') }} ci
+           on ci.company_name = nullif(trim(source.company_name), '')
     -- A handful of postings (9 of 20,084) carry no employer at all - Adzuna
     -- returns them anonymised, with location flattened to just "US". They
     -- cannot be applied to and cannot be attributed to a company, so they are
     -- useless downstream. The raw layer keeps them; staging drops them.
-    where nullif(trim(company_name), '') is not null
+    where nullif(trim(source.company_name), '') is not null
 
 ),
 

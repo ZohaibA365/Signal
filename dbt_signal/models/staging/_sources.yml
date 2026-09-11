@@ -11,3 +11,16 @@ sources:
             tests: [not_null]
           - name: source
             tests: [not_null]
+
+      - name: company_identity
+        description: >
+          One canonical company name per employer, written by
+          storage/resolve_companies.py. Exists because 33 employers were
+          published as two pages each and three slugs collided outright, one
+          page silently overwriting another. Joined rather than enforced as a
+          grain change so every downstream model keeps joining on company_name.
+        columns:
+          - name: company_name
+            tests: [not_null, unique]
+          - name: canonical_name
+            tests: [not_null]

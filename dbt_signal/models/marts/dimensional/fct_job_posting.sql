@@ -17,11 +17,40 @@
       where not exists (
           select 1 from {{ ref('stg_jobs') }} s
           where s.source = f.source and s.job_id = f.job_id
+      );
+
+      -- And remove facts pointing at a company that no longer exists.
+      --
+      -- The clause above does not cover this, despite its comment naming a
+      -- rename as a cause. company_key is a surrogate hash of company_name, so
+      -- merging two spellings of one employer changes the key while
+      -- (source, job_id) stays put: the posting still exists, the orphan check
+      -- passes, and the row keeps a key dim_company has forgotten. 626 rows
+      -- failed referential integrity that way the first time names were merged.
+      --
+      -- Deleting them is correct but not sufficient alone. This table is
+      -- incremental on updated_at, so a deleted row only returns once its
+      -- posting is touched again; after a canonicalisation change, a
+      -- full-refresh of this model restores them.
+      --
+      -- No double quotes in this comment on purpose: the post_hook is parsed as
+      -- a Jinja config value and a quoted phrase here ends the string early.
+      delete from {{ this }} f
+      where not exists (
+          select 1 from {{ ref('dim_company') }} c
+          where c.company_key = f.company_key
       )
       {% endif %}
     """
   )
 }}
+
+{# dim_company is referenced only inside the post-hook's is_incremental()
+   block, so dbt cannot infer the dependency from the model body and will not
+   guarantee dim_company is built first. Declaring it here does both: it fixes
+   the compile error and makes the build order explicit, which matters because
+   the hook deletes facts by comparing against that table. #}
+-- depends_on: {{ ref('dim_company') }}
 
 /*
   Job posting fact. Grain: one row per posting.

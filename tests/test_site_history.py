@@ -154,3 +154,34 @@ def test_chart_is_hidden_without_a_series(env):
     html = env.get_template("tech.html").render(**_tech_ctx(spark=None))
     assert "Measured demand over time" not in html
     assert "<polyline" not in html
+
+
+# ------------------------------------------------------- the slug collision guard
+
+def test_colliding_slugs_fail_the_build():
+    """
+    The real case: two spellings of Fivetran wanted /companies/fivetran/, and
+    the 29-posting page overwrote the 177-posting one. Silently, for weeks.
+    """
+    with pytest.raises(SystemExit) as exc:
+        B.assert_unique_slugs([
+            {"slug": "fivetran", "company_name": "FiveTran"},
+            {"slug": "fivetran", "company_name": "Fivetran"},
+        ])
+    assert "collision" in str(exc.value)
+
+
+def test_unique_slugs_pass():
+    B.assert_unique_slugs([
+        {"slug": "fivetran", "company_name": "FiveTran"},
+        {"slug": "databricks-inc", "company_name": "Databricks, Inc."},
+    ])
+
+
+def test_the_guard_reports_every_collision_not_just_the_first():
+    with pytest.raises(SystemExit) as exc:
+        B.assert_unique_slugs([
+            {"slug": "a", "company_name": "A"}, {"slug": "a", "company_name": "A."},
+            {"slug": "b", "company_name": "B"}, {"slug": "b", "company_name": "B."},
+        ])
+    assert "2 company slug collision" in str(exc.value)

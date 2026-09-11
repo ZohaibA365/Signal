@@ -103,6 +103,14 @@ ALTER TABLE company_employer_key ADD COLUMN IF NOT EXISTS match_type TEXT;
 -- with 15,274, out of 12 candidates. That only escaped publication because
 -- COGNIZANT has no space and so graded prefix_weak; a multi-word brand in the
 -- same position would have been stated as fact.
+-- Declared here too because build_mapping joins it and load order is not
+-- guaranteed on a fresh warehouse. storage/resolve_companies.py owns it.
+CREATE TABLE IF NOT EXISTS company_identity (
+    company_name   TEXT PRIMARY KEY,
+    company_key    TEXT NOT NULL,
+    canonical_name TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS company_employer_candidates (
     company_name TEXT    NOT NULL,
     employer_key TEXT    NOT NULL,
@@ -124,12 +132,20 @@ def build_mapping(cur) -> None:
     Reads dol_employer_summary rather than the Parquet, so this runs daily in
     about twenty seconds with no local data and no new dependency.
     """
-    # trim() because stg_jobs.sql emits nullif(trim(company_name),'') and every
-    # model joins on that. 16 rows carried an untrimmed name that nothing
-    # downstream could ever match.
+    # Keyed on the canonical name, because that is what stg_jobs.sql projects
+    # and therefore what every downstream model joins on. Two reasons it is not
+    # the raw name: 16 rows carried an untrimmed one that nothing could match,
+    # and since company_identity collapses "Databricks" into "Databricks, Inc."
+    # a mapping keyed on raw spellings would simply miss the 184 companies that
+    # were canonicalised. The coalesce mirrors stg_jobs exactly - if those two
+    # expressions ever diverge, sponsorship silently stops joining.
     cur.execute("""
-        SELECT DISTINCT nullif(trim(company_name), '')
-        FROM raw_postings WHERE company_name IS NOT NULL
+        SELECT DISTINCT
+               coalesce(ci.canonical_name, nullif(trim(r.company_name), ''))
+        FROM raw_postings r
+        LEFT JOIN company_identity ci
+               ON ci.company_name = nullif(trim(r.company_name), '')
+        WHERE r.company_name IS NOT NULL
     """)
     companies = [c[0] for c in cur.fetchall() if c[0]]
 
@@ -267,8 +283,11 @@ def main() -> None:
                        WHERE c.match_type IN ('exact','prefix_strong')),
                    count(*)
             FROM raw_postings r
+            LEFT JOIN company_identity ci
+                   ON ci.company_name = nullif(trim(r.company_name), '')
             LEFT JOIN company_employer_key c
-                   ON c.company_name = nullif(trim(r.company_name), '')
+                   ON c.company_name = coalesce(ci.canonical_name,
+                                                nullif(trim(r.company_name), ''))
         """)
         pw_matched, pw_total = cur.fetchone()
         log.info("Postings whose employer has confident sponsorship evidence: "

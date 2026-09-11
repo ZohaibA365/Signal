@@ -229,6 +229,21 @@ jobs:
           bash scripts/run_step.sh "Build history from the archive"
           python analytics/build_history.py
 
+      # Ahead of the sponsorship mapping, because the mapping is keyed on the
+      # canonical name and would otherwise miss every company that was merged.
+      #
+      # 33 employers were published as two pages each - "Databricks" and
+      # "Databricks, Inc.", "Oracle" and "Oracle Corporation" - each with its own
+      # peer computation and its own sponsorship lookup, so one twin could show
+      # filings while the other said none were found. Three slugs collided
+      # outright and the smaller page silently overwrote the larger.
+      - name: Canonicalise company names
+        id: company_identity
+        timeout-minutes: 10
+        run: >-
+          bash scripts/run_step.sh "Canonicalise company names"
+          python storage/resolve_companies.py
+
       # Before the transform, not after: dbt reads company_employer_key as a
       # source, so a mapping rebuilt afterwards would always be one run behind.
       #
@@ -399,6 +414,7 @@ jobs:
             echo "| archive to data lake | ${{ steps.archive.outcome || 'skipped' }} |"
             echo "| extract technologies | ${{ steps.extract.outcome || 'skipped' }} |"
             echo "| build history | ${{ steps.history.outcome || 'skipped' }} |"
+            echo "| company identity | ${{ steps.company_identity.outcome || 'skipped' }} |"
             echo "| sponsorship mapping | ${{ steps.dol_mapping.outcome || 'skipped' }} |"
             echo "| quality checks | ${{ steps.quality.outcome || 'skipped' }} |"
             echo "| parquet export | ${{ steps.parquet.outcome || 'skipped' }} |"
