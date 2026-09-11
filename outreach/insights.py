@@ -131,13 +131,42 @@ def _is_own_product(company: str, tech_slug: str, tech_name: str) -> bool:
     return c and (c in ts or ts in c or c in tn or tn in c)
 
 
-# Below this many distinct days of collection, "last 30 days versus the 30
-# before" measures when we started collecting, not how a company is hiring.
+# Below this many days of collection, "last 30 days versus the 30 before"
+# measures when we started collecting, not how a company is hiring.
+#
+# Deliberately stricter than the site's threshold of 28 measured days, and it
+# stays that way. A misleading chart on a public page is bad; a false claim in
+# an email to someone who knows their own hiring numbers is worse, and it is
+# unrecoverable - they will simply conclude the whole project is unreliable. The
+# asymmetry justifies a different bar for the same underlying data.
 MIN_DAYS_FOR_TREND = 45
 
 
 def collection_days(cur) -> int:
-    """How many distinct days postings have actually been collected on."""
+    """
+    How many days of usable collection history exist.
+
+    Prefers hist_coverage.measured_days, which counts only days a complete daily
+    archive run actually covered. The old fallback below counts distinct
+    first_seen dates, which answers a different and weaker question: a date
+    appears there if any posting was first seen on it, whether or not that day's
+    panel is complete. prune.py can also delete the oldest postings outright, so
+    that count could silently go down over time - a trend gate that erodes.
+
+    This is also what ends the divergence. site/build.py had a constant of the
+    same name measuring distinct market_snapshots.snapshot_date, and neither
+    version ever asked whether a day was complete.
+    """
+    try:
+        cur.execute("SELECT measured_days FROM hist_coverage WHERE id = 1")
+        row = cur.fetchone()
+        if row:
+            value = row[0] if not isinstance(row, dict) else list(row.values())[0]
+            if value is not None:
+                return int(value)
+    except Exception:                       # noqa: BLE001 - table may not exist yet
+        cur.connection.rollback()
+
     cur.execute("SELECT count(DISTINCT first_seen::date) FROM raw_postings")
     row = cur.fetchone()
     return (row[0] if not isinstance(row, dict) else list(row.values())[0]) or 0

@@ -59,6 +59,36 @@
 
 
 
+  <h2>How much history exists, stated plainly</h2>
+  <p>
+    Trend claims on this site are gated on how many days the collection has
+    <em>completely</em> covered, not on how many dates happen to appear in the data.
+    {% if coverage and coverage.measured_days is not none %}
+    Right now that is <b class="num">{{ coverage.measured_days }}</b>
+    day{{ 's' if coverage.measured_days != 1 }} of
+    <b class="num">{{ coverage.min_measured_days_required }}</b> required, so
+    {% if coverage.trend_is_publishable %}rate and trend figures are published.
+    {% else %}every rate and trend figure is suppressed — including on pages where
+    there is clearly enough data to draw something.{% endif %}
+    {% else %}
+    That figure is not available on this build, so trend figures are suppressed.
+    {% endif %}
+  </p>
+  <p>
+    The distinction matters because the warehouse keeps one "last seen" timestamp per
+    posting and overwrites it daily, so history has to be accumulated deliberately rather
+    than queried. Where it was reconstructed after the fact, only a posting's first and
+    last sighting could be recovered — which means a role open for three weeks contributes
+    two days and nothing in between. Counting open roles across those days would undercount
+    by an unknown amount, and an undercount in a time series reads as decline rather than
+    as missing data.
+  </p>
+  <p class="note">
+    So those days are excluded from every rate, rather than drawn as a dip. The count above
+    rises by one for each day the collection completes a full pass, and nothing that depends
+    on it appears until the threshold is met.
+  </p>
+
   <h2>Sponsorship is a record, not a guess</h2>
   <p>
     Under 4% of job postings mention visa sponsorship at all, even at full length — so
