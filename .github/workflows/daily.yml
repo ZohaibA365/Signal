@@ -94,6 +94,10 @@ jobs:
       # run is a permanent hole in the series. It runs first for that reason.
       - name: Market snapshot
         id: snapshot
+        # Non-fatal, though a missed snapshot IS a permanent hole - killing the
+        # twenty steps after it does not bring the day back, it loses those too.
+        # Counted as a failure at the end instead, so the run still goes red.
+        continue-on-error: true
         timeout-minutes: 20
         run: bash scripts/run_step.sh "Market snapshot" python ingestion/market_snapshot.py
 
@@ -123,6 +127,7 @@ jobs:
       # republishing the same board postings while only the market statistics
       # moved.
       - name: Ingest postings from career boards
+        continue-on-error: true
         id: boards
         timeout-minutes: 45
         # Bounded by wall-clock time, not board count.
@@ -165,12 +170,15 @@ jobs:
       # Pruning the oldest text back until the database is under target keeps
       # the load able to run every day rather than until the next ceiling.
       - name: Make room in the warehouse
+        id: prune
+        continue-on-error: true
         timeout-minutes: 15
         run: >-
           bash scripts/run_step.sh "Make room in the warehouse"
           python storage/prune.py --apply --target-mb 380
 
       - name: Load aggregator postings to warehouse
+        continue-on-error: true
         id: load_aggregator
         timeout-minutes: 20
         run: >-
@@ -178,6 +186,7 @@ jobs:
           python storage/load_to_warehouse.py --country us ca
 
       - name: Load board postings to warehouse
+        continue-on-error: true
         id: load_boards
         timeout-minutes: 20
         run: >-
@@ -204,6 +213,7 @@ jobs:
       # earlier step failed. archive_postings.py exits with "S3_BUCKET is not
       # set" of its own accord, which is loud.
       - name: Archive postings to the data lake
+        continue-on-error: true
         id: archive
         if: always()
         timeout-minutes: 15
@@ -213,6 +223,7 @@ jobs:
 
       - name: Extract technologies
         id: extract
+        continue-on-error: true
         run: >-
           bash scripts/run_step.sh "Extract technologies"
           python ai_layer/extract_tech.py
@@ -238,6 +249,7 @@ jobs:
       # filings while the other said none were found. Three slugs collided
       # outright and the smaller page silently overwrote the larger.
       - name: Canonicalise company names
+        continue-on-error: true
         id: company_identity
         timeout-minutes: 10
         run: >-
@@ -254,6 +266,7 @@ jobs:
       # only Postgres and takes about two seconds; the heavy XLSX and Spark path
       # stays quarterly, which is how often new DOL quarters land.
       - name: Rebuild the sponsorship mapping
+        continue-on-error: true
         id: dol_mapping
         timeout-minutes: 10
         run: >-
@@ -326,6 +339,8 @@ jobs:
       # back when the run fails. Three separate diagnoses of this step were
       # guesses precisely because "exit code 2" was all that escaped.
       - name: Transform
+        id: transform
+        continue-on-error: true
         timeout-minutes: 40
         working-directory: dbt_signal
         run: |
@@ -347,6 +362,7 @@ jobs:
       # Capped: the only step that spends money. The enricher also skips any
       # posting whose text has not changed.
       - name: Score new roles
+        id: enrich
         # github.event.inputs rather than inputs: on a scheduled run the
         # inputs context is empty, and comparing explicitly to 'true' is
         # unambiguous where negating an absent value is not.
@@ -376,18 +392,22 @@ jobs:
             --model claude-haiku-4-5-20251001 --linkable --relevant --limit 400
 
       - name: Refresh marts
+        id: refresh_marts
+        continue-on-error: true
         working-directory: dbt_signal
         run: dbt build --profiles-dir . --no-version-check --target prod --select marts.*+
 
       # Gates the run. No retry: a failing check is a real problem, and
       # retrying only delays learning about it.
       - name: Data quality checks
+        continue-on-error: true
         id: quality
         run: >-
           bash scripts/run_step.sh "Data quality checks"
           python quality/expectations.py
 
       - name: Export curated Parquet
+        continue-on-error: true
         id: parquet
         run: >-
           bash scripts/run_step.sh "Export curated Parquet"
@@ -430,3 +450,81 @@ jobs:
               cur.execute(q); print(f'| {label} | {cur.fetchone()[0]:,} |')
           " 2>/dev/null | sed '1i | metric | value |\n| --- | --- |'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The run's verdict, decided here rather than by whichever step happened to
+      # fail first.
+      #
+      # Every step above is continue-on-error now, and that is the whole fix. The
+      # pipeline had 19 fatal steps, so one transient failure skipped every step
+      # after it: on 2026-09-10 an Adzuna 503 at step 8 cost the board ingest,
+      # both loads, the archive, the transform and the site refresh - fourteen
+      # steps that would all have succeeded. Fourteen scheduled runs had failed
+      # at six different steps, which is not one bug but a chain with too many
+      # links. At even a 1% per-step transient rate, 19 fatal links fail about
+      # five mornings a month.
+      #
+      # So steps no longer decide the verdict; this does. It fails only when
+      # something happened that a later run cannot put right:
+      #
+      #   snapshot       a missed day is a permanent hole in the series
+      #   archive        same - once last_seen moves, that day is gone
+      #   boards         the job board's only real source of postings
+      #   load_boards    data collected but not stored
+      #   transform      the site is serving yesterday's numbers
+      #   refresh_marts  same
+      #   quality        a real data problem was detected
+      #
+      # Everything else - the aggregator, discovery, prune, extraction, history,
+      # identity, mapping, scoring, Parquet - is recovered by tomorrow's run, so
+      # it warns and does not fail.
+      - name: Decide the run outcome
+        if: always()
+        run: |
+          # Plain strings, not associative arrays. declare -A needs bash 4 and
+          # macOS ships 3.2, so an array-based gate could only ever be tested by
+          # pushing it - which is the habit this whole change exists to break.
+          # This form runs identically on both and can be exercised locally.
+          critical="
+            snapshot=${{ steps.snapshot.outcome }}
+            boards=${{ steps.boards.outcome }}
+            load_boards=${{ steps.load_boards.outcome }}
+            archive=${{ steps.archive.outcome }}
+            transform=${{ steps.transform.outcome }}
+            refresh_marts=${{ steps.refresh_marts.outcome }}
+            quality=${{ steps.quality.outcome }}
+          "
+          recoverable="
+            aggregator=${{ steps.aggregator.outcome }}
+            discover=${{ steps.discover.outcome }}
+            prune=${{ steps.prune.outcome }}
+            load_aggregator=${{ steps.load_aggregator.outcome }}
+            extract=${{ steps.extract.outcome }}
+            history=${{ steps.history.outcome }}
+            company_identity=${{ steps.company_identity.outcome }}
+            dol_mapping=${{ steps.dol_mapping.outcome }}
+            enrich=${{ steps.enrich.outcome }}
+            parquet=${{ steps.parquet.outcome }}
+          "
+
+          broke=""
+          for pair in $critical; do
+            case "${pair#*=}" in failure) broke="$broke ${pair%%=*}" ;; esac
+          done
+          warned=""
+          for pair in $recoverable; do
+            case "${pair#*=}" in failure) warned="$warned ${pair%%=*}" ;; esac
+          done
+
+          if [ -n "$warned" ]; then
+            echo "::warning::Recoverable steps failed, retried tomorrow:$warned"
+            printf '\nRecoverable failures (retried tomorrow):%s\n' "$warned" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -n "$broke" ]; then
+            echo "::error::Critical steps failed:$broke"
+            printf '\n**Critical failures:**%s\n' "$broke" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "no critical failures"
