@@ -193,6 +193,23 @@ CREATE INDEX IF NOT EXISTS idx_company_employer_key ON company_employer_key (emp
 -- has no space and so graded prefix_weak. Filing volume is not the tiebreak
 -- either: "Lucid Motors" prefixes LUCID with 842 filings, a different company
 -- from Lucid Group with 15. So ambiguity is recorded, not resolved.
+-- One canonical company name per employer, written by
+-- storage/resolve_companies.py and joined by stg_jobs.
+--
+-- Declared here because this file is what CI applies and what every model is
+-- built against: a table a model reads and schema.sql does not declare fails
+-- the build on a missing relation, which is exactly what it did when this was
+-- left in the loader's own DDL.
+--
+-- 33 employers were published as two pages each before this existed, and three
+-- slugs collided outright with the smaller page overwriting the larger.
+CREATE TABLE IF NOT EXISTS company_identity (
+    company_name   TEXT PRIMARY KEY,
+    company_key    TEXT NOT NULL,
+    canonical_name TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_company_identity_key ON company_identity (company_key);
+
 -- Which DOL legal entities belong to one employer. One row per link, because a
 -- company can own several, and sponsorship totals are summed over this rather
 -- than read from a single key.

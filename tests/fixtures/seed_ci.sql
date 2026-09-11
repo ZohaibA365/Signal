@@ -88,6 +88,37 @@ INSERT INTO company_employer_key (company_name, employer_key, match_type) VALUES
     ('Globex','GLOBEX ANALYTICS','prefix_strong'),
     ('Maple Systems', NULL, NULL);
 
+-- The two companion snapshot tables. Seeded because a declared-but-empty
+-- source passes the build while making everything downstream vacuous:
+-- salary_by_tech reads market_snapshot_salary and would compute its bands over
+-- zero rows, so its sample-size guard would never be exercised.
+INSERT INTO market_snapshot_companies
+    (snapshot_date, tech_slug, company_name, postings, rank)
+VALUES
+    (current_date,'python','Acme Data',120,1),
+    (current_date,'python','Globex',40,2),
+    (current_date,'snowflake','Acme Data',30,1);
+
+INSERT INTO market_snapshot_salary
+    (snapshot_date, tech_slug, salary_bucket, posting_count)
+VALUES
+    (current_date,'python',100000,900),
+    (current_date,'python',150000,600),
+    (current_date,'python',200000,200),
+    (current_date,'snowflake',150000,80),
+    (current_date,'snowflake',200000,20);
+
+-- Canonical company names. Seeded with a real merge - two spellings of Acme
+-- Data resolving to one - so the build exercises the join in stg_jobs rather
+-- than only the table's existence. 'Acme Data Inc.' has no postings in this
+-- fixture, which is also the normal case: the mapping covers every spelling
+-- ever seen, not only the ones currently live.
+INSERT INTO company_identity (company_name, company_key, canonical_name) VALUES
+    ('Acme Data',      'ACME DATA',     'Acme Data'),
+    ('Acme Data Inc.', 'ACME DATA',     'Acme Data'),
+    ('Globex',         'GLOBEX',        'Globex'),
+    ('Maple Systems',  'MAPLE SYSTEMS', 'Maple Systems');
+
 -- The link table is what sponsorship totals are summed over. Seeded to mirror
 -- the mapping above, plus a second entity for Acme Data so the CI build
 -- actually exercises a company that owns more than one.
