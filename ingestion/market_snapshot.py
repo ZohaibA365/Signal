@@ -138,16 +138,55 @@ ON CONFLICT (snapshot_date, tech_slug, salary_bucket) DO UPDATE SET
 """
 
 
+def already_captured(day) -> bool:
+    """Whether market_snapshots already holds rows for this date."""
+    try:
+        conn = connect(autocommit=True)
+    except Exception as exc:                         # noqa: BLE001
+        # Cannot tell, so do the work rather than skip it. Losing a day is
+        # permanent; spending the calls twice is not.
+        log.warning("Could not check for an existing snapshot (%s) - capturing anyway",
+                    str(exc).strip()[:90])
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM market_snapshots WHERE snapshot_date = %s",
+                        (day,))
+            return (cur.fetchone()[0] or 0) > 0
+    except Exception:                                # noqa: BLE001
+        return False
+    finally:
+        conn.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Capture the daily market snapshot")
     ap.add_argument("--counts-only", action="store_true",
                     help="openings only; skips top_companies and histogram")
     ap.add_argument("--dry-run", action="store_true", help="fetch but do not persist")
+    ap.add_argument("--force", action="store_true",
+                    help="re-capture even if today is already recorded")
     args = ap.parse_args()
 
     auth = _auth()
     techs = tracked()
     today = datetime.now(UTC).date()
+
+    # Already captured today? Stop before spending the API budget.
+    #
+    # This is what makes a second run of the pipeline on the same day nearly
+    # free, and a second run is the safety net: the scheduled pipeline failed
+    # fourteen mornings running, at six different steps, and a retry hours later
+    # recovers from all of them without anyone watching. Without this check that
+    # retry would re-spend 153 Adzuna calls - the most expensive thing in the
+    # run - to write rows it already has.
+    #
+    # The writes upsert on (snapshot_date, tech_slug), so re-capturing was always
+    # safe. It was just wasteful.
+    if not args.dry_run and not args.force and already_captured(today):
+        log.info("Snapshot for %s already recorded - nothing to do. "
+                 "Use --force to re-capture.", today)
+        return
     calls = len(techs) * (1 if args.counts_only else 3)
     log.info("Snapshot %s: %s technologies, ~%s API calls, ~%.0fs",
              today, len(techs), calls, calls * SLEEP)

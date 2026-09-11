@@ -17,8 +17,20 @@
 # given a bespoke version of this wrapper and stopped being a mystery; every
 # other step was still flying blind.
 #
+# It also retries, because most of what broke this pipeline was transient. Set
+# RETRIES to the number of attempts; the default of 1 means no retry, so a step
+# only retries where that is actually safe. Waits 15s then 45s between attempts,
+# which is long enough to outlast the kind of outage that was killing runs: the
+# aggregator returned HTTP 503 for about 14 seconds on 2026-09-10 and the whole
+# morning was lost to it.
+#
+# Retry only idempotent steps. Every one that does retry either resumes from what
+# it already wrote, upserts on a natural key, or recomputes from scratch.
+#
 # Usage:
 #     scripts/run_step.sh "Step title" command arg arg ...
+#     RETRIES=3 scripts/run_step.sh "Step title" command ...
+#     RETRY_WAIT_SECONDS=0 RETRIES=3 scripts/run_step.sh ...   # in tests
 #
 # Exits with the wrapped command's status, so continue-on-error and hard steps
 # both behave exactly as they did before.
@@ -40,11 +52,28 @@ shift
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/signal-step-$$.log"
 : > "$log"
 
+retries="${RETRIES:-1}"
+attempt=1
+status=0
 set -o pipefail
-"$@" 2>&1 | tee "$log"
-status="${PIPESTATUS[0]}"
+while : ; do
+    : > "$log"
+    "$@" 2>&1 | tee "$log"
+    status="${PIPESTATUS[0]}"
+    [ "$status" -eq 0 ] && break
+    [ "$attempt" -ge "$retries" ] && break
+    # Overridable so the tests need not sleep through it. A backoff that can
+    # only be exercised in real time is a backoff nothing tests.
+    wait="${RETRY_WAIT_SECONDS:-$((attempt * 30 + 15))}"
+    echo "::warning::${title} failed (attempt ${attempt} of ${retries}), retrying in ${wait}s"
+    attempt=$((attempt + 1))
+    sleep "$wait"
+done
 
 if [ "$status" -eq 0 ]; then
+    if [ "$attempt" -gt 1 ]; then
+        echo "::warning::${title} succeeded on attempt ${attempt} of ${retries}"
+    fi
     rm -f "$log"
     exit 0
 fi
@@ -54,7 +83,7 @@ fi
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
         echo ""
-        echo "### ${title} failed (exit ${status})"
+        echo "### ${title} failed (exit ${status}) after ${attempt} attempt(s)"
         echo '```'
         tail -40 "$log"
         echo '```'

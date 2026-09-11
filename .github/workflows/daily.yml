@@ -16,6 +16,23 @@ name: Daily pipeline
 on:
   schedule:
     - cron: "0 7 * * *"          # 07:00 UTC, before the 07:30 site build
+    # A second attempt twelve hours later, which is the safety net.
+    #
+    # The scheduled pipeline failed fourteen mornings running, at six different
+    # steps. Step retries handle a momentary outage; this handles the rest - a
+    # board that is down for an hour, a Neon maintenance window, a runner that
+    # dies. Nobody has to notice or press anything.
+    #
+    # It is nearly free because every stage skips work it has already done: the
+    # market snapshot returns immediately once the day is recorded, the
+    # aggregator resumes past pages already in S3, the loads upsert, the archive
+    # deduplicates on a content hash, and scoring is incremental. The expensive
+    # part of a run is the 153 snapshot API calls, and a second run makes none
+    # of them.
+    #
+    # Free-tier cron is delayed by hours, so in practice these land around
+    # midday and around midnight rather than at 07:00 and 19:00.
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
       skip_enrichment:
@@ -50,6 +67,14 @@ jobs:
       # for a Winter 2027 internship - a silently wrong answer, not an error.
       SIGNAL_PROFILE: student
       DO_NOT_TRACK: "1"
+      # Read by scripts/run_step.sh. Two attempts by default, because almost
+      # everything that broke this pipeline was transient: a 14-second HTTP 503
+      # from the aggregator cost a whole morning, and six consecutive mornings
+      # died on a board that was slow that day. Every wrapped step is idempotent
+      # - it resumes from what it already wrote, upserts on a natural key, or
+      # recomputes from scratch - so a retry cannot double-count anything.
+      # Overridden per step where an attempt costs money or time.
+      RETRIES: "2"
 
     steps:
       - uses: actions/checkout@v5
@@ -79,6 +104,11 @@ jobs:
           echo "all required secrets present"
 
       - name: Check warehouse reachable
+        # Neon suspends idle compute and the first connection of the day waits
+        # for it to wake, measured in minutes. This is the likeliest transient in
+        # the run and it is fatal, so it gets the most attempts.
+        env:
+          RETRIES: "4"
         timeout-minutes: 10
         run: |
           python -c "
@@ -129,7 +159,11 @@ jobs:
       - name: Ingest postings from career boards
         continue-on-error: true
         id: boards
-        timeout-minutes: 45
+        # Raised from 45 to fit two attempts of the 20-minute budget below. Six
+        # consecutive scheduled runs died here, so a second attempt is worth more
+        # than a tight bound, and the job still allows 150 minutes against a
+        # 35-minute measured run.
+        timeout-minutes: 60
         # Bounded by wall-clock time, not board count.
         #
         # Capping at 400 boards was the obvious fix and it still timed out,
@@ -363,6 +397,9 @@ jobs:
       # posting whose text has not changed.
       - name: Score new roles
         id: enrich
+        # The only step where an attempt costs money, so it does not retry.
+        env:
+          RETRIES: "1"
         # github.event.inputs rather than inputs: on a scheduled run the
         # inputs context is empty, and comparing explicitly to 'true' is
         # unambiguous where negating an absent value is not.

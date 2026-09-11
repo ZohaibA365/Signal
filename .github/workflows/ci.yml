@@ -62,6 +62,13 @@ jobs:
       - name: Unit tests
         run: pytest -q
 
+      # The step wrapper is bash, and what matters about it is bash behaviour:
+      # retry counting, exit-status propagation, annotation shape. Testing that
+      # through a Python layer would only add somewhere for the test to be wrong
+      # about the thing it checks. Runs in under a second.
+      - name: Step wrapper tests
+        run: bash tests/test_run_step.sh
+
       # dbt_packages/ is gitignored, so the macros dbt_utils provides are not
       # in the checkout. Without this the build fails on the first
       # generate_surrogate_key or accepted_range.
