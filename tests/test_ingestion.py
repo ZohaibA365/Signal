@@ -155,6 +155,16 @@ class _Args:
     dry_run = True
 
 
+@pytest.fixture(autouse=True)
+def _no_real_step_summary(monkeypatch):
+    """
+    CI sets GITHUB_STEP_SUMMARY, so report() would append test output to the
+    real run summary. Harmless but misleading, and it couples the suite to the
+    environment it runs in.
+    """
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
 def test_partial_failure_does_not_fail_the_run():
     """
     Fourteen terms succeeding and one failing is a warning, not a dead run.
@@ -185,3 +195,119 @@ def test_fully_resumed_run_is_not_a_failure():
 def test_403_is_in_the_retryable_set():
     assert 403 in adz.RETRYABLE
     assert 429 in adz.RETRYABLE
+
+
+# ------------------------------- the actual 2026-09-10 failure, reproduced
+#
+# Recovered from the run log once a read-only Actions token was available:
+#
+#   11:58:41  Country: US
+#   ...       wrote 50 postings  x35 pages, 1,750 postings
+#   12:00:01  WARNING  HTTP 503 on 'machine learning intern' page 1 - retry 1/3 in 2s
+#   12:00:03  WARNING  HTTP 503 on 'machine learning intern' page 1 - retry 2/3 in 4s
+#   12:00:07  WARNING  HTTP 503 on 'machine learning intern' page 1 - retry 3/3 in 8s
+#   12:00:15  RuntimeError: Adzuna failed after 3 retries for 'machine learning intern' page 1
+#   12:00:15  ##[error]Process completed with exit code 1.
+#
+# Service Unavailable, not quota and not auth. 503 was already retryable, so
+# the bug was never the classification - it was giving up after 14 seconds and
+# then destroying the run, which skipped the board ingest, both loads, the
+# archive, the transform and the site refresh.
+
+
+def test_the_2026_09_10_failure_no_longer_fails_the_run():
+    """
+    35 pages succeeded before one term went 503. That is a warning, not an
+    outage: the run must report the bad term and exit 0 so the fourteen
+    downstream steps still happen.
+    """
+    adz.report(total_postings=1_750, files_written=35, skipped=0, planned=150,
+               failures=[("us", "machine learning intern", 1, 503,
+                          "gave up after 4 retries for 'machine learning intern' "
+                          "page 1 - HTTP 503")],
+               args=_Args())
+
+
+def test_503_gets_a_longer_window_than_it_did(monkeypatch):
+    """
+    The old code allowed 3 retries - 2 + 4 + 8 = 14 seconds. Adzuna's blip
+    outlasted it. Four retries gives 2 + 4 + 8 + 16 = 30 seconds, more than
+    twice the window, so the same blip is absorbed rather than fatal.
+    """
+    slept = []
+    monkeypatch.setattr(adz.time, "sleep", slept.append)
+    monkeypatch.setattr(adz.requests, "get", lambda *a, **k: FakeResponse(503))
+    with pytest.raises(adz.FetchFailed) as exc:
+        adz.fetch_page("machine learning intern", 1, "id", "key")
+    assert exc.value.status == 503
+    assert sum(slept) >= 30
+
+
+def test_503_that_clears_on_the_fourth_try_still_succeeds(monkeypatch):
+    """Adzuna's outage lasted seconds. The fourth attempt is the one that matters."""
+    seq = [FakeResponse(503), FakeResponse(503), FakeResponse(503),
+           FakeResponse(200, payload={"results": [{"id": "x"}], "count": 1})]
+    monkeypatch.setattr(adz.time, "sleep", lambda _s: None)
+    calls = []
+
+    def fake_get(*_a, **_k):
+        calls.append(1)
+        return seq[len(calls) - 1]
+
+    monkeypatch.setattr(adz.requests, "get", fake_get)
+    assert adz.fetch_page("machine learning intern", 1, "id", "key")["count"] == 1
+    assert len(calls) == 4
+
+
+def test_a_dead_term_does_not_abandon_the_remaining_terms(monkeypatch, capsys):
+    """
+    The behaviour change that matters, driven through main() rather than
+    report(): one term stuck on 503 must not cost the other terms or the second
+    country. On 2026-09-10 it cost ten US terms, all of Canada, and fourteen
+    downstream steps.
+    """
+    written, fetched = [], []
+
+    class FakeS3:
+        def put_object(self, Bucket, Key, Body, ContentType=None):  # noqa: N803
+            written.append(Key)
+
+        def list_objects_v2(self, **_kw):
+            return {"Contents": [], "IsTruncated": False}
+
+    def fake_get(url, params=None, timeout=None):
+        term = params["what"]
+        fetched.append(term)
+        if term == "machine learning intern":
+            return FakeResponse(503, text="Service Unavailable")
+        return FakeResponse(200, payload={"results": [{"id": "1"}], "count": 1})
+
+    monkeypatch.setattr(adz.requests, "get", fake_get)
+    monkeypatch.setattr(adz.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(adz.boto3, "client", lambda *_a, **_k: FakeS3())
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_API_KEY", "key")
+    monkeypatch.setenv("S3_BUCKET", "bucket")
+    # Set explicitly rather than inherited: this test asserts on the annotation,
+    # and a test that only passes when the ambient environment happens to be
+    # right is not a test. It passed alone and failed in the full suite.
+    monkeypatch.setenv("GITHUB_ACTIONS", "1")
+    # And removed, so the suite never appends to a real run summary in CI.
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.setattr(sys, "argv", [
+        "adzuna_ingest.py", "--pages", "1", "--country", "us", "ca",
+        "--terms", "data engineer", "machine learning intern", "data analyst",
+    ])
+
+    # No SystemExit: two of three terms worked, so the run is a warning.
+    adz.main()
+
+    # The dead term did not stop the ones after it, in either country.
+    assert any("data_engineer" in k for k in written)
+    assert any("data_analyst" in k for k in written)
+    assert any("country=ca" in k for k in written)
+    assert len(written) == 4          # 2 good terms x 2 countries
+    assert "machine learning intern" in fetched
+
+    out = capsys.readouterr().out
+    assert "::warning::" in out       # visible without a repo token
