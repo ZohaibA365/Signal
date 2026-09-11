@@ -50,6 +50,7 @@ import io
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 
 import boto3
 import pyarrow as pa
@@ -317,6 +318,33 @@ def archive_descriptions(conn, s3, bucket: str, day: str, dry: bool) -> int:
     return written
 
 
+def write_run_marker(s3, bucket: str, day: str, mode: str, counts: dict,
+                     dry: bool) -> None:
+    """
+    Record that an archive run covered this day, and how.
+
+    Without this the presence panel silently lies about coverage. A backfill
+    can only recover first_seen and last_seen, so a posting open from the 23rd
+    to the 9th contributes rows for two days and nothing in between - measured
+    across the whole corpus that came out as 1.84 observed days per posting
+    against a 17-day span. Counting "roles open on the 27th" over that panel
+    undercounts by an unknown amount.
+
+    A daily run has no such gap: it records every posting seen that day. So the
+    distinction that matters is not row provenance but whether a run of mode
+    "daily" ever covered the date, and that is what this marker states. Trend
+    work must read it rather than assuming every date in the panel is complete.
+
+    This project has published one false trend claim built on exactly this kind
+    of unstated assumption; the marker is cheaper than a third retraction.
+    """
+    # "mode" is a reserved word in DuckDB, and this file is read by
+    # analytics/build_history.py, so the column is run_mode.
+    rows = [{"observed_date": day, "run_mode": mode,
+             "written_at": datetime.now(UTC).isoformat(), **counts}]
+    put(s3, bucket, f"{PREFIX}/runs/observed_date={day}/run.json.parquet", rows, dry)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Append-only posting archive in S3")
     ap.add_argument("--date", help="ingest day to archive (default: latest in the warehouse)")
@@ -352,6 +380,17 @@ def main() -> None:
 
         if not args.skip_descriptions:
             total += archive_descriptions(conn, s3, bucket, day, args.dry_run)
+
+        # Only a daily run covers a day completely. A backfill reconstructs two
+        # sightings per posting and nothing between them, so it must not claim
+        # the days it touches are complete.
+        if not args.backfill:
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM raw_postings WHERE last_seen::date = %s::date",
+                            (day,))
+                live = cur.fetchone()[0]
+            write_run_marker(s3, bucket, day, "daily",
+                             {"postings_observed": live}, args.dry_run)
 
         log.info("Done - %.1f MB written%s", total / 1e6,
                  " (dry run)" if args.dry_run else "")

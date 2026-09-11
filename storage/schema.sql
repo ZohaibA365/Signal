@@ -251,3 +251,74 @@ CREATE INDEX IF NOT EXISTS idx_board_registry_status ON board_registry (status);
 ALTER TABLE board_registry ADD COLUMN IF NOT EXISTS last_ingested_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_board_registry_staleness
     ON board_registry (last_ingested_at NULLS FIRST);
+
+-- ---------------------------------------------------------------------------
+-- History summaries, computed by analytics/build_history.py over the S3
+-- archive and written back here so the site keeps reading only one database.
+--
+-- They are summaries on purpose. The panel they come from is one row per
+-- posting per day - around 54,000 rows a day, 18M a year - which is exactly
+-- the shape this 512 MB warehouse cannot hold and the reason the archive lives
+-- in S3. What comes back is a few thousand rows.
+
+-- The authoritative answer to "how much history is there".
+--
+-- Two constants called MIN_DAYS_FOR_TREND already exist, in site/build.py and
+-- outreach/insights.py, and they measure different things: distinct
+-- market_snapshots.snapshot_date and distinct raw_postings.first_seen::date.
+-- Neither asks whether a day's posting panel is complete, which is the only
+-- question that matters before dividing one window by another. A backfill
+-- recovers two sightings per posting and nothing between them, so most dates
+-- in the panel are undercounts. measured_days counts only dates a real daily
+-- archive run covered.
+CREATE TABLE IF NOT EXISTS hist_coverage (
+    id                          INTEGER PRIMARY KEY,    -- always 1; one row
+    measured_days               INTEGER NOT NULL,
+    panel_days                  INTEGER NOT NULL,
+    first_measured              DATE,
+    last_measured               DATE,
+    min_measured_days_required  INTEGER NOT NULL,
+    trend_is_publishable        BOOLEAN NOT NULL,
+    computed_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Roles observed open per day. Measured days only: a gap in a series is
+-- visible, but an undercount reads as a decline.
+CREATE TABLE IF NOT EXISTS hist_daily_roles (
+    observed_date   DATE    NOT NULL,
+    country         TEXT    NOT NULL,
+    open_roles      INTEGER NOT NULL,
+    companies       INTEGER NOT NULL,
+
+    PRIMARY KEY (observed_date, country)
+);
+
+-- Per company, from the panel rather than from posted_date.
+--
+-- median_days_open counts only postings that have stopped appearing, because a
+-- posting still open has no end date yet and one that predates collection looks
+-- younger than it is. closed_share says how much of the sample that median
+-- rests on.
+CREATE TABLE IF NOT EXISTS hist_company_pace (
+    company_name        TEXT    NOT NULL PRIMARY KEY,
+    country             TEXT,
+    postings_observed   INTEGER NOT NULL,
+    first_observed      DATE,
+    last_observed       DATE,
+    distinct_open_days  INTEGER,
+    median_days_open    NUMERIC,
+    closed_share        NUMERIC,
+
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Technology mentions among roles actually observed open each day. The
+-- unbiased counterpart to tech_demand_history, which reconstructs months from
+-- posted_date over surviving postings and says so in its own header.
+CREATE TABLE IF NOT EXISTS hist_tech_daily (
+    observed_date        DATE    NOT NULL,
+    tech_slug            TEXT    NOT NULL,
+    postings_mentioning  INTEGER NOT NULL,
+
+    PRIMARY KEY (observed_date, tech_slug)
+);

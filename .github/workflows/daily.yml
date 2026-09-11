@@ -217,6 +217,18 @@ jobs:
           bash scripts/run_step.sh "Extract technologies"
           python ai_layer/extract_tech.py
 
+      # Reads the whole S3 archive each run and rewrites the summaries, so it is
+      # idempotent and a failure costs nothing a later run cannot recompute -
+      # which is why this is continue-on-error while the archive above is not.
+      # It needs posting_technologies, so it follows extraction.
+      - name: Build history from the archive
+        id: history
+        timeout-minutes: 20
+        continue-on-error: true
+        run: >-
+          bash scripts/run_step.sh "Build history from the archive"
+          python analytics/build_history.py
+
       # dbt_utils has to be installed before anything dbt runs. The models
       # use generate_surrogate_key for the star schema and star() to carry
       # every column except the description through the marts, so without the
@@ -370,6 +382,7 @@ jobs:
             echo "| load boards | ${{ steps.load_boards.outcome || 'skipped' }} |"
             echo "| archive to data lake | ${{ steps.archive.outcome || 'skipped' }} |"
             echo "| extract technologies | ${{ steps.extract.outcome || 'skipped' }} |"
+            echo "| build history | ${{ steps.history.outcome || 'skipped' }} |"
             echo "| quality checks | ${{ steps.quality.outcome || 'skipped' }} |"
             echo "| parquet export | ${{ steps.parquet.outcome || 'skipped' }} |"
             echo ""
