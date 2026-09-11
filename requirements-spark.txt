@@ -1,0 +1,23 @@
+# The DOL H-1B path: 576 MB of XLSX across six quarters, 800,569 filings,
+# aggregated by processing/dol_spark.py.
+#
+# Separate from requirements-dev.txt for the same reason requirements-snowflake.txt
+# is separate: this is an optional quarterly component, and its install must not
+# be able to break the one every step of the daily pipeline depends on. pyspark
+# alone pulls a JVM dependency and ~300 MB.
+#
+# All three were imported by ingestion/dol_ingest.py and processing/dol_spark.py
+# and declared nowhere, so a clean checkout could not run either. pyspark also
+# needs a JVM: JAVA_HOME=$(brew --prefix openjdk@17) locally, or nothing at all
+# on Databricks, where the runtime provides it.
+#
+#     pip install -r requirements-spark.txt
+pyspark==4.2.0
+
+# Reads the XLSX. Spark cannot - hence the Parquet conversion step, which is a
+# prerequisite for the Spark job rather than a nicety.
+python-calamine==0.8.2
+
+# Writes the Parquet. Also used by storage/export_parquet.py and
+# analytics/build_history.py, which reach it transitively through pandas 3.x.
+pyarrow==25.0.1

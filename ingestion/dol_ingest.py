@@ -128,6 +128,26 @@ def main() -> None:
     args = ap.parse_args()
 
     files = args.files or sorted(glob.glob(f"{SRC_DIR}/*.xlsx"))
+
+    # Drop cloud placeholders before reading anything.
+    #
+    # iCloud evicts these files and leaves an entry with the right size and zero
+    # blocks allocated. Opening one makes the reader block on a fetch that does
+    # not arrive: the conversion died with "TimeoutError: [Errno 60] Operation
+    # timed out" deep inside calamine, which says nothing about the real cause.
+    # Every size-based check passes against a placeholder, so the test is blocks
+    # allocated - the same test scripts/dol_download.py uses to decide what to
+    # re-fetch.
+    present, evicted = [], []
+    for f in files:
+        (present if os.stat(f).st_blocks else evicted).append(f)
+    if evicted:
+        log.warning("%s file(s) are cloud placeholders with no bytes on disk and "
+                    "are skipped; run scripts/dol_download.py to restore them:",
+                    len(evicted))
+        for f in evicted:
+            log.warning("    %s", os.path.basename(f))
+    files = present
     if not files:
         raise SystemExit(f"No XLSX files in {SRC_DIR}/ - download them first")
 
