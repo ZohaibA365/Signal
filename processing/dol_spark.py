@@ -17,14 +17,26 @@ Output: one row per (employer, fiscal year) with filing counts, approval mix,
 wage percentiles and the roles they sponsor for, written back as Parquet and
 loaded into the warehouse by storage/load_dol.py.
 
+Runs in two places from one definition. Locally it configures a laptop-sized
+session and needs a JVM; on Databricks the runtime supplies both the JVM and the
+session, and only the input and output paths change. All of that is isolated in
+session() - build() is identical either way, which is the only reason the local
+path does not rot while the scheduled one is the one actually used.
+
+Databricks is not decoration here. This job has no runtime on the machine it was
+written for: there is no JVM installed at all, so it cannot execute locally
+today, and it is in no workflow. Databricks is where it can actually run.
+
 Usage:
     JAVA_HOME=$(brew --prefix openjdk@17) python processing/dol_spark.py
+    # on Databricks, as a job task - no JAVA_HOME, no --in-dir defaults
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 
 from pyspark.sql import SparkSession, Window
 from pyspark.sql import functions as F
@@ -35,12 +47,50 @@ log = logging.getLogger("dol_spark")
 IN_DIR = "data/dol_parquet"
 OUT_DIR = "data/dol_employer_summary"
 
+# Where the same data lives on Databricks. A Volume rather than the user's S3
+# bucket: Free Edition restricts outbound access to a set of trusted domains and
+# does not document whether an external bucket is among them, so the pipeline
+# pushes 30 MB of Parquet in rather than relying on the cluster reaching out. If
+# external reads do turn out to work, this is a one-line change.
+DBFS_IN = "/Volumes/signal/dol/parquet"
+DBFS_OUT = "/Volumes/signal/dol/employer_summary"
+
 # Titles that indicate data/software work, so the summary can answer "does this
 # employer sponsor for roles like mine" rather than only "does it sponsor".
 TECH_TITLE = (
     r"(?i)(data engineer|data scientist|software|machine learning|analytics|"
     r"database|devops|site reliability|cloud|platform engineer|analyst)"
 )
+
+
+def on_databricks() -> bool:
+    """
+    Whether this is running inside a Databricks runtime.
+
+    DATABRICKS_RUNTIME_VERSION is set by the runtime itself, so it cannot drift
+    out of step with reality the way a flag passed on the command line can.
+    """
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION"))
+
+
+def session() -> SparkSession:
+    """
+    The only part of this job that differs between a laptop and a cluster.
+
+    On Databricks the session already exists and its sizing belongs to the
+    cluster, not to this file - setting driver memory there either fails or is
+    silently ignored depending on the runtime, and either way it is a lie about
+    who is in charge. Locally nothing exists yet, so it is created with the
+    modest settings a 4 GB driver can actually honour.
+    """
+    builder = SparkSession.builder.appName("signal-dol-employer-summary")
+    if not on_databricks():
+        builder = (builder
+                   .config("spark.sql.shuffle.partitions", "16")  # laptop, not cluster
+                   .config("spark.driver.memory", "4g"))
+    spark = builder.getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
 
 
 def build(spark: SparkSession, in_dir: str, out_dir: str) -> None:
@@ -110,18 +160,14 @@ def build(spark: SparkSession, in_dir: str, out_dir: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Aggregate DOL filings with Spark")
-    ap.add_argument("--in-dir", default=IN_DIR)
-    ap.add_argument("--out-dir", default=OUT_DIR)
+    # Relative paths locally; on Databricks the job definition passes Volume
+    # paths, because a cluster has no data/ directory.
+    ap.add_argument("--in-dir", default=DBFS_IN if on_databricks() else IN_DIR)
+    ap.add_argument("--out-dir", default=DBFS_OUT if on_databricks() else OUT_DIR)
     args = ap.parse_args()
 
-    spark = (
-        SparkSession.builder
-        .appName("signal-dol-employer-summary")
-        .config("spark.sql.shuffle.partitions", "16")   # laptop-sized, not cluster-sized
-        .config("spark.driver.memory", "4g")
-        .getOrCreate()
-    )
-    spark.sparkContext.setLogLevel("WARN")
+    log.info("Running %s", "on Databricks" if on_databricks() else "locally")
+    spark = session()
     try:
         build(spark, args.in_dir, args.out_dir)
     finally:

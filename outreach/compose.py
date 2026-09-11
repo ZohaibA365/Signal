@@ -43,8 +43,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "storage"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ai_layer"))
 sys.path.insert(0, os.path.dirname(__file__))
 
-from profile import PROFILE  # noqa: E402
-
+from candidate_profile import PROFILE  # noqa: E402
 from db import connect  # noqa: E402
 from insights import (  # noqa: E402
     _fetch_facts,

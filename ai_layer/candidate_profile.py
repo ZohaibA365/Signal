@@ -11,6 +11,15 @@ Select with the SIGNAL_PROFILE environment variable:
     SIGNAL_PROFILE=student python ai_layer/enrich.py
 
 Adding a profile does not require touching any other module.
+
+Named candidate_profile rather than profile, because `profile` is a standard
+library module and shadowing it is a landmine rather than a style question.
+pyspark imports stdlib profile during `import pyspark.sql`, which puts it into
+sys.modules first; after that `from profile import PROFILE` returns the stdlib
+module and every import here fails with "cannot import name PROFILE". Both the
+enricher and the outreach layer read this file, so the damage would have landed
+on scoring and on cold-email drafting, triggered by nothing more than something
+upstream touching Spark in the same process.
 """
 
 from __future__ import annotations

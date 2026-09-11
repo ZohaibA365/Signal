@@ -1,0 +1,70 @@
+# Databricks job definition, committed rather than clicked together.
+#
+# The workspace UI can build the same job, and a job that exists only there is
+# not reviewable and not reproducible. This project is consistent about that:
+# ingestion/boards.yml, orchestration/signal_dag.py and dbt_signal/profiles.yml
+# are all config in the repo, so the Spark job is too.
+#
+# What this job is for, stated narrowly. It is NOT here because 800,569 rows are
+# large - they are not, and a laptop handles the aggregation when it has a JVM.
+# It is here because:
+#
+#   1. the full filing detail is the thing Neon structurally cannot hold, and
+#      everything richer than the current employer-year summary needs it
+#   2. processing/dol_spark.py had no runtime at all: no JVM on the machine it
+#      was written for, and no workflow anywhere
+#   3. it lets Neon shrink - keeping the top 5,000 employers by filings retains
+#      73.8% of all filings in 13% of the rows, taking dol_employer_summary from
+#      30 MB to about 4 MB against a 512 MB ceiling
+#
+# Quarterly, because new LCA quarters land four times a year. One task, against
+# Free Edition's five-concurrent-task cap. A quarterly single-task job cannot
+# exhaust a daily compute quota, and if the workspace is suspended for the day
+# nothing happens: the last summary is already in Postgres and the site runs off
+# that.
+#
+# Usage:
+#     databricks bundle validate
+#     databricks bundle deploy -t dev
+#     databricks bundle run dol_employer_summary -t dev
+
+bundle:
+  name: signal
+
+targets:
+  dev:
+    default: true
+    mode: development
+
+resources:
+  jobs:
+    dol_employer_summary:
+      name: Signal - DOL employer summary
+      description: >
+        Aggregates six quarters of H-1B disclosure filings to one row per
+        employer and fiscal year, with approval mix, wage percentiles and the
+        roles each employer sponsors for.
+
+      # No schedule. The input is pushed from the local pipeline when a new
+      # quarter is converted, so a timer would fire against unchanged data three
+      # times out of four and spend quota for nothing. Run it when the data
+      # changes: `databricks bundle run`.
+
+      tasks:
+        - task_key: aggregate
+          # Serverless: Free Edition offers no other compute, and naming a
+          # cluster spec here would simply fail to deploy.
+          environment_key: default
+          spark_python_task:
+            # Relative to the bundle root, which is this file's directory.
+            python_file: processing/dol_spark.py
+            parameters:
+              - --in-dir
+              - /Volumes/signal/dol/parquet
+              - --out-dir
+              - /Volumes/signal/dol/employer_summary
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"

@@ -28,10 +28,10 @@ import os
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from profile import ACTIVE as ACTIVE_PROFILE
-from profile import as_prompt_context
 
 import anthropic
+from candidate_profile import ACTIVE as ACTIVE_PROFILE
+from candidate_profile import as_prompt_context
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field
