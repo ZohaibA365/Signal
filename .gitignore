@@ -31,6 +31,13 @@ data/
 # failed to compile. Local builds passed because the file was present on disk.
 !dbt_signal/seeds/*.csv
 
+# Second time the blanket rule has bitten. This one is hand-written employer
+# decisions read by storage/load_dol.py - source, not data - and without it the
+# sponsorship aliases work locally and silently do nothing in CI or the daily
+# pipeline, which is exactly what happened: posting coverage measured 59.7% on a
+# laptop and would have stayed at 50.7% in production.
+!storage/employer_aliases.csv
+
 # Airflow
 airflow.db
 airflow-webserver.pid
