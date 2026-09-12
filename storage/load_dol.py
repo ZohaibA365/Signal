@@ -309,6 +309,52 @@ def build_mapping(cur) -> None:
                  f"{kinds['prefix_ambiguous']:,}")
 
 
+# How many employers to keep in Postgres, by filing volume.
+#
+# The full table is 108,001 employer-years and 30 MB of a 512 MB database. The
+# top 5,000 employers are 14,090 rows - 13% of them - and carry 73.8% of all
+# 800,569 filings, which takes the table to roughly 4 MB. Measured, not guessed;
+# the alternatives were 2,000 (62.5% of filings) and 10,000 (82.1%).
+#
+# Nothing the site serves is lost. Only 1,458 employer keys are referenced by any
+# company in the corpus, so the cut keeps every one of them with a wide margin,
+# and the rows it drops are employers with a handful of filings that no posting
+# resolves to. board_discovery.dol_targets() reads the largest sponsors from this
+# table and is unaffected by definition.
+#
+# The full detail stays on Databricks, where it belongs: a lake holds everything,
+# a serving database holds what is served. That division is the actual reason for
+# the Spark job, rather than the size of any one file.
+TOP_EMPLOYERS = 5_000
+
+
+def prune_summary(cur, keep: int) -> None:
+    """
+    Keep the highest-volume employers plus every key a company maps to.
+
+    The second half matters. A pure top-N cut would drop a small employer that a
+    posting resolves to, and that company's page would lose its sponsorship
+    evidence - which is the feature this whole table exists for.
+    """
+    cur.execute("""
+        DELETE FROM dol_employer_summary d
+        WHERE d.employer_key NOT IN (
+            SELECT employer_key FROM (
+                SELECT employer_key,
+                       row_number() OVER (ORDER BY sum(filings) DESC) AS rn
+                FROM dol_employer_summary GROUP BY 1
+            ) ranked WHERE rn <= %s
+        )
+        AND d.employer_key NOT IN (SELECT employer_key FROM company_employer_link)
+    """, (keep,))
+    dropped = cur.rowcount
+    cur.execute("SELECT count(*), count(DISTINCT employer_key), sum(filings) "
+                "FROM dol_employer_summary")
+    rows, employers, filings = cur.fetchone()
+    log.info("Pruned %s employer-year row(s); kept %s rows, %s employers, %s filings",
+             f"{dropped:,}", f"{rows:,}", f"{employers:,}", f"{filings:,}")
+
+
 def load_summary(cur) -> None:
     """Replace dol_employer_summary from the Spark output. Quarterly."""
     files = glob.glob(f"{SUMMARY_DIR}/**/*.parquet", recursive=True)
@@ -341,6 +387,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Load DOL filings and match them to companies")
     ap.add_argument("--rebuild-mapping-only", action="store_true",
                     help="rebuild the company mapping from Postgres; skip the Parquet load")
+    ap.add_argument("--top-employers", type=int, default=TOP_EMPLOYERS,
+                    help=f"employers to keep in Postgres (default {TOP_EMPLOYERS:,}); "
+                         "0 keeps all")
     args = ap.parse_args()
 
     conn = connect()
@@ -350,6 +399,10 @@ def main() -> None:
         if not args.rebuild_mapping_only:
             load_summary(cur)
         build_mapping(cur)
+        # After the mapping, so company_employer_link already names every key a
+        # company resolves to and the prune cannot drop one of them.
+        if args.top_employers:
+            prune_summary(cur, args.top_employers)
 
         # Reported two ways, because they answer different questions. The
         # company count says how complete the mapping is; the posting-weighted

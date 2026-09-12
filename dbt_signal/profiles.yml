@@ -36,8 +36,15 @@ signal:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      role: "{{ env_var('SNOWFLAKE_ROLE', 'ACCOUNTADMIN') }}"
+      # Key-pair, not a password. The account enforces MFA, which is a property
+      # of interactive login: a password-presenting driver is rejected with
+      # "Multi-factor authentication is required for this account" and no retry
+      # changes that. The private key is gitignored and never leaves this
+      # machine; only its public half is registered on the Snowflake user.
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', '../.snowflake_key.p8') }}"
+      # SIGNAL_LOADER, not ACCOUNTADMIN. dbt creates and drops tables in one
+      # schema; ACCOUNTADMIN can drop the account's billing configuration.
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'SIGNAL_LOADER') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE', 'SIGNAL_DB') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
       schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'PUBLIC') }}"

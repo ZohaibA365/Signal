@@ -88,3 +88,16 @@ GRANT ALL ON ALL VIEWS IN SCHEMA SIGNAL_DB.PUBLIC TO ROLE SIGNAL_LOADER;
 
 -- The human account gets the role so the same key can use it.
 GRANT ROLE SIGNAL_LOADER TO USER ZOHAIB365;
+
+-- ---------------------------------------------------------------------------
+-- 4. UTC, because the pipeline is UTC everywhere else.
+--
+-- Snowflake defaults a session to America/Los_Angeles while Neon runs in GMT, and
+-- casting a TIMESTAMPTZ to a date resolves in the session timezone. So
+-- posted_date::date landed on a different day for any posting timestamped near
+-- midnight, and is_stale disagreed on 33 postings between the two engines -
+-- silently, with no error anywhere.
+--
+-- Set on the account rather than per session, so dbt, the loader and a worksheet
+-- all agree without each having to remember.
+ALTER ACCOUNT SET TIMEZONE = 'UTC';

@@ -50,6 +50,11 @@ TABLES = [
     "dol_employer_summary",
     "company_employer_key",
     "company_employer_link",
+    # stg_jobs joins this to canonicalise company names, so a Snowflake build
+    # without it fails three source tests and skips 65 downstream models. It was
+    # missing because the list is hand-maintained; tests/test_snowflake_mirror.py
+    # now asserts the list covers every table dbt declares as a source.
+    "company_identity",
 ]
 
 

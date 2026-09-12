@@ -87,8 +87,8 @@ cleaned as (
             -- "Senior Design Student" reads as a student role.
             when regexp_like(job_title,
                  '^(.*[^a-z])?(intern|interns|internship|interning|co.?op|'
-                 'new.grad|new.graduate|university.grad|campus|'
-                 'student|students|placement|trainee|apprentice)([^a-z].*)?$',
+              || 'new.grad|new.graduate|university.grad|campus|'
+              || 'student|students|placement|trainee|apprentice)([^a-z].*)?$',
                  'i') then 'intern'
             -- Canadian employers frequently name the work term instead of
             -- using the word. RBC posts "2027 CAE, Winter Audit Planning &
@@ -96,9 +96,9 @@ cleaned as (
             -- contains neither "intern" nor "co-op". A season with a year, or
             -- an explicit month count, is the tell.
             when regexp_like(job_title,
-                 '(winter|summer|fall|spring)[^a-z0-9]*20[0-9][0-9]|'
-                 '20[0-9][0-9][^a-z0-9]*(winter|summer|fall|spring)|'
-                 '[(][0-9]{1,2}[ -]*months?[)]', 'i') then 'intern'
+                 '.*((winter|summer|fall|spring)[^a-z0-9]*20[0-9][0-9]|'
+              || '20[0-9][0-9][^a-z0-9]*(winter|summer|fall|spring)|'
+              || '[(][0-9]{1,2}[ -]*months?[)]).*', 'i') then 'intern'
             when regexp_like(job_title, '^(.*[^a-z])?(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)([^a-z].*)?$', 'i') then 'senior'
             when regexp_like(job_title, '^(.*[^a-z])?(new grad|graduate|entry.level|junior|jr|associate|apprentice)([^a-z].*)?$', 'i') then 'entry'
             else 'mid'
@@ -195,31 +195,58 @@ select
       and an earlier macro reached Snowflake as an unbalanced paren and
       Postgres as a literal "s". regexp_like is used over ~* for the same
       portability reason.
+
+      The flag is 'is', not 'i', on every predicate over description_raw. The s
+      means "dot matches newline", and descriptions are multi-line: without it
+      Snowflake's .* stops at the first line break, so a refusal written anywhere
+      below the opening paragraph is missed. Measured: wrapping alone took
+      refuses_sponsorship from 0 to 1,023 against Postgres's 3,172; the flag
+      closes the rest. Postgres already behaves that way by default and accepts
+      the flag, so one form serves both. Job titles keep 'i' - they are one line.
+
+      Every search-style pattern is wrapped in .*(...).* because the two engines
+      disagree about anchoring, and they disagree SILENTLY. Postgres regexp_like
+      searches anywhere; Snowflake's matches the whole string. Measured on the
+      same 64,141 rows: refuses_sponsorship found 3,172 postings on Postgres and
+      ZERO on Snowflake, and nothing failed - the number was simply wrong on one
+      side. The project documented this hazard for is_internship, which is why
+      that pattern is written ^(.*[^a-z])?...([^a-z].*)?$ and matches identically
+      on both; the sponsorship predicates were never given the same treatment.
+      Wrapping costs nothing on Postgres, where .* already matched anywhere.
+
+      Long patterns are joined with an explicit || rather than by putting two
+      quoted strings on adjacent lines. Postgres concatenates adjacent literals
+      separated by a newline; Snowflake rejects it outright with "syntax error
+      unexpected ''unable to|not be able to...''". Building these models on a
+      second engine is how that was found, and it was sitting in the two most
+      load-bearing predicates in the project - the internship classifier and the
+      sponsorship refusal. Spark SQL accepts || as well, so one form serves all
+      three.
     */
     regexp_like(coalesce(description_raw, ''),
-                '(will not|does not|do not|cannot|can not|are not able to|'
-                'unable to|not be able to|not offer|not provide)'
-                '[^.]{0,80}sponsor', 'i')
+                '.*(will not|does not|do not|cannot|can not|are not able to|'
+             || 'unable to|not be able to|not offer|not provide)'
+             || '[^.]{0,80}sponsor.*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'sponsorship[^.]{0,60}(is not|not available|will not be|'
-                'cannot be|is unavailable)', 'i')
+                '.*sponsorship[^.]{0,60}(is not|not available|will not be|'
+             || 'cannot be|is unavailable).*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'does not now or in the future require sponsorship', 'i')
+                '.*does not now or in the future require sponsorship.*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'do not apply[^.]{0,80}sponsor', 'i')
+                '.*do not apply[^.]{0,80}sponsor.*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'without the need for[^.]{0,40}sponsor', 'i')
+                '.*without the need for[^.]{0,40}sponsor.*', 'is')
                                                           as refuses_sponsorship,
 
     -- Only where the employer is plainly the one offering. Deliberately
     -- narrow: this exists to describe a posting, never to cancel a refusal.
     regexp_like(coalesce(description_raw, ''),
-                '(we|company) (do|does|will|can|are able to|are willing to|'
-                'are happy to)[^.]{0,20}sponsor', 'i')
+                '.*(we|company) (do|does|will|can|are able to|are willing to|'
+             || 'are happy to)[^.]{0,20}sponsor.*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'sponsorship (is|will be) available', 'i')
+                '.*sponsorship (is|will be) available.*', 'is')
     or regexp_like(coalesce(description_raw, ''),
-                'will consider sponsor', 'i')             as offers_sponsorship,
+                '.*will consider sponsor.*', 'is')             as offers_sponsorship,
 
     case when source = 'company_board' then redirect_url end   as link_url,
     case when source = 'company_board' then 'direct'
