@@ -328,6 +328,32 @@ def build_mapping(cur) -> None:
 TOP_EMPLOYERS = 5_000
 
 
+def reclaim(conn) -> None:
+    """
+    Return the deleted pages to the operating system.
+
+    DELETE only marks pages reusable, so the table keeps its old size and Neon
+    keeps metering it - 30 MB of a 512 MB budget for rows nothing reads. VACUUM
+    FULL rewrites the table and needs as much free space again as it occupies:
+    30 MB against ~79 MB free is comfortable, which is why this is safe here and
+    would not be on raw_postings at 265 MB.
+
+    Run outside the transaction on purpose. VACUUM cannot execute inside a
+    transaction block, and the caller wraps its work in one - so this takes its
+    own autocommit connection rather than quietly failing.
+    """
+    conn.commit()
+    old = conn.autocommit
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("VACUUM FULL ANALYZE dol_employer_summary")
+            cur.execute("SELECT pg_size_pretty(pg_total_relation_size('dol_employer_summary'))")
+            log.info("Reclaimed space; dol_employer_summary is now %s", cur.fetchone()[0])
+    finally:
+        conn.autocommit = old
+
+
 def prune_summary(cur, keep: int) -> None:
     """
     Keep the highest-volume employers plus every key a company maps to.
@@ -393,6 +419,7 @@ def main() -> None:
     args = ap.parse_args()
 
     conn = connect()
+    pruned = False
     log.info("Writing to %s", describe())
     with conn, conn.cursor() as cur:
         cur.execute(DDL)
@@ -403,6 +430,7 @@ def main() -> None:
         # company resolves to and the prune cannot drop one of them.
         if args.top_employers:
             prune_summary(cur, args.top_employers)
+            pruned = True
 
         # Reported two ways, because they answer different questions. The
         # company count says how complete the mapping is; the posting-weighted
@@ -432,6 +460,9 @@ def main() -> None:
         log.info("Postings whose employer has confident sponsorship evidence: "
                  "%s of %s (%.1f%%)", f"{pw_matched:,}", f"{pw_total:,}",
                  100.0 * pw_matched / max(pw_total, 1))
+
+    if pruned:
+        reclaim(conn)
 
     conn.close()
 
