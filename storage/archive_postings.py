@@ -67,6 +67,21 @@ log = logging.getLogger("archive")
 
 PREFIX = "archive"
 
+# Distinguishes one run from another within the same day.
+#
+# Description and manifest objects used to be keyed by day alone - part-0000,
+# then 2026-09-11-0000 - so a second run on the same day OVERWROTE the first
+# run's files instead of adding to them. The daily pipeline archived its
+# descriptions at 11:52, a later run archived 866 more at 15:23, and the 15:23
+# file replaced the 11:52 one. The manifest count went DOWN after archiving,
+# which is the only reason it was caught: an append-only store whose contents
+# shrink is not append-only.
+#
+# Presence and attributes are deliberately NOT stamped. Those are whole-day
+# snapshots and rewriting one with identical content is what makes re-running a
+# day safe.
+RUN_STAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+
 # Text is fetched in batches rather than all at once: 50,091 descriptions
 # averaging 5,236 characters is roughly 260 MB, which is fine on disk and
 # careless to hold in a runner's memory alongside pyarrow's copy of it.
@@ -251,7 +266,8 @@ def save_manifest(s3, bucket: str, entries: set, day: str, shard: int, dry: bool
     """
     rows = [{"source": a, "job_id": b, "description_sha256": c}
             for a, b, c in sorted(entries)]
-    put(s3, bucket, f"{PREFIX}/manifest/{day}-{shard:04d}.parquet", rows, dry)
+    put(s3, bucket,
+        f"{PREFIX}/manifest/{day}-{RUN_STAMP}-{shard:04d}.parquet", rows, dry)
 
 
 def archive_descriptions(conn, s3, bucket: str, day: str, dry: bool) -> int:
@@ -304,9 +320,11 @@ def archive_descriptions(conn, s3, bucket: str, day: str, dry: bool) -> int:
             ]
 
         part = i // BATCH
-        written += put(s3, bucket,
-                       f"{PREFIX}/descriptions/archived_date={day}/part-{part:04d}.parquet",
-                       rows, dry)
+        written += put(
+            s3, bucket,
+            f"{PREFIX}/descriptions/archived_date={day}/"
+            f"part-{RUN_STAMP}-{part:04d}.parquet",
+            rows, dry)
         added.update((r["source"], r["job_id"], r["description_sha256"]) for r in rows)
 
         if len(added) >= 10 * BATCH:

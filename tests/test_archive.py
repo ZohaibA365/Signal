@@ -95,3 +95,60 @@ def test_attributes_never_carry_the_text():
 @pytest.mark.parametrize("column", ["source", "job_id", "first_seen", "last_seen"])
 def test_attributes_carry_the_keys_history_needs(column):
     assert column in arc.ATTRS
+
+
+# ------------------------------------------- two runs on one day must not collide
+#
+# They did. Description and manifest objects were keyed by day alone - part-0000,
+# then 2026-09-11-0000 - so a second run on the same day overwrote the first run's
+# files instead of adding to them. The daily pipeline archived its descriptions at
+# 11:52, a later run archived 866 more at 15:23, and the 15:23 file replaced the
+# 11:52 one: 828 descriptions vanished from an append-only store.
+#
+# It was caught only because the manifest count went DOWN after archiving. A store
+# whose contents shrink is not append-only, and had the reclaim run on that
+# verification, 828 descriptions would have been deleted from Postgres while
+# absent from S3.
+
+
+def test_the_run_stamp_is_in_the_description_and_manifest_keys():
+    """
+    The fix. Presence and attribute keys are deliberately NOT stamped - those are
+    whole-day snapshots and rewriting one with identical content is what makes
+    re-running a day safe. Only the append-only prefixes need uniqueness.
+    """
+    import inspect
+    desc = inspect.getsource(arc.archive_descriptions)
+    man = inspect.getsource(arc.save_manifest)
+    assert "RUN_STAMP" in desc, "description keys collide between runs on one day"
+    assert "RUN_STAMP" in man, "manifest keys collide between runs on one day"
+
+    presence = inspect.getsource(arc.archive_presence)
+    attrs = inspect.getsource(arc.archive_attributes)
+    assert "RUN_STAMP" not in presence
+    assert "RUN_STAMP" not in attrs
+
+
+def test_the_run_stamp_is_unique_enough_to_separate_runs():
+    """Second resolution: two runs of a 30-minute pipeline cannot share a stamp."""
+    import re
+    assert re.fullmatch(r"\d{8}T\d{6}", arc.RUN_STAMP), arc.RUN_STAMP
+
+
+def test_a_second_write_on_the_same_day_uses_a_different_key():
+    """
+    The property that actually matters, asserted on the keys themselves rather
+    than on the code that builds them.
+    """
+    s3 = FakeS3()
+    rows = [{"source": "board", "job_id": "j1", "description_sha256": "a",
+             "description_raw": "x"}]
+    day = "2026-09-11"
+    first = f"archive/descriptions/archived_date={day}/part-{arc.RUN_STAMP}-0000.parquet"
+    arc.put(s3, "bucket", first, rows, dry=False)
+
+    # A later run carries a later stamp.
+    later = first.replace(arc.RUN_STAMP, "20260911T999999")
+    arc.put(s3, "bucket", later, rows, dry=False)
+
+    assert len(s3.objects) == 2, "a second run overwrote the first run's file"
