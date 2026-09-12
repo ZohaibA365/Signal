@@ -281,47 +281,56 @@ def reclaim(cur) -> float:
     Return the emptied pages to Neon's meter, and say so in megabytes.
 
     Clearing text with UPDATE does not shrink anything by itself. Postgres marks
-    the old TOAST entries dead and plain VACUUM makes those pages reusable, which
+    the old row versions dead and plain VACUUM makes those pages reusable, which
     is what stops the file growing - but the file keeps its size, and Neon meters
-    the file. Turning 260 MB of reusable pages back into headroom needs a rewrite.
+    the file. Turning 250 MB of reusable pages back into headroom needs a rewrite.
 
-    The rewrite is aimed at the TOAST table rather than raw_postings, and that is
-    the whole reason this is safe. VACUUM FULL needs as much free space again as
-    the thing it rewrites: the parent table holds about 125 MB of live data
-    against 96 MB of headroom, so rewriting it could hit the ceiling partway
-    through, while the live text left after retention is about 45 MB. TOAST is
-    also where the space actually is - 208 MB of the table's 286 MB.
+    Which thing gets rewritten depends on the room available, because VACUUM FULL
+    writes a second copy before dropping the first:
 
-    Measured on the local copy: a rewrite took the database from 105 MB to 48 MB
-    and the TOAST table from 35 MB to 2 MB, in under a second.
+      - The whole table, when the headroom comfortably exceeds its current total
+        size. Best result, since it compacts the heap and the indexes too, and
+        rewrites the text store as part of the same operation.
+      - The text store alone otherwise. That is where the space usually is - 208 MB
+        of a 286 MB table on the morning this was written - and the live text left
+        after retention is a fraction of the whole.
+      - Nothing, when even that does not fit, saying so rather than trying. This is
+        the case that matters: the first version of text-clearing filled the
+        database it was protecting, and the prune could then not run at all.
+
+    The size used for the test is the relation's total size rather than its live
+    bytes, which over-estimates what the copy needs - erring towards not starting.
+
+    Measured on Neon: with 95 MB of headroom it rewrote the text store and returned
+    171 MB, taking the database from 417 MB to 246 MB.
     """
     cur.execute("""
         SELECT c.reltoastrelid::regclass::text,
                pg_total_relation_size(c.reltoastrelid) / 1048576.0,
-               (SELECT coalesce(sum(length(description_raw)), 0) / 1048576.0
-                  FROM raw_postings),
+               pg_total_relation_size(c.oid) / 1048576.0,
                pg_database_size(current_database()) / 1048576.0
         FROM pg_class c WHERE c.oid = 'raw_postings'::regclass
     """)
-    toast, toast_mb, live_mb, db_before = (float(v) if i else v
-                                          for i, v in enumerate(cur.fetchone()))
+    row = cur.fetchone()
+    toast = row[0]
+    toast_mb, table_mb, db_before = (float(v) for v in row[1:])
     headroom = CEILING_MB - db_before
 
-    # Uncompressed length is an over-estimate of what the rewrite will occupy,
-    # since TOAST compresses, so erring here errs towards not starting.
-    if live_mb * 1.2 > headroom:
-        log.warning("skipping reclaim: rewriting %.0f MB of live text needs more "
-                    "room than the %.0f MB of headroom left. The pages are "
-                    "reusable, so loads will not grow the file - but Neon still "
-                    "meters it.", live_mb, headroom)
+    if table_mb * 1.2 <= headroom:
+        target, size_mb, what = "raw_postings", table_mb, "the whole table"
+    elif toast_mb * 1.2 <= headroom:
+        target, size_mb, what = toast, toast_mb, "the text store"
+    else:
+        log.warning("skipping reclaim: the smallest rewrite available needs %.0f MB "
+                    "and only %.0f MB of headroom is left. The pages are reusable, "
+                    "so loads will not grow the file - but Neon still meters it.",
+                    toast_mb * 1.2, headroom)
         return 0.0
 
-    # The two numbers differ because TOAST compresses and short descriptions stay
-    # inline in the heap, so the text measures larger uncompressed than the store
-    # holding it. Stating both keeps the headroom arithmetic checkable.
-    log.info("rewriting %s: %.0f MB on disk, holding %.0f MB of text uncompressed",
-             toast, toast_mb, live_mb)
-    cur.execute(f"VACUUM FULL {toast}")
+    log.info("rewriting %s (%s, %.0f MB) with %.0f MB of headroom",
+             target, what, size_mb, headroom)
+    cur.execute(f"VACUUM FULL {target}")
+    cur.execute("ANALYZE raw_postings")
     freed = db_before - db_mb(cur)
     log.info("reclaim returned %.0f MB", freed)
     return freed
@@ -455,7 +464,11 @@ def main() -> None:
                          "returned rather than only marked reusable")
     args = ap.parse_args()
 
-    conn = connect(autocommit=True)
+    # direct=True, not the pooled endpoint. This run creates temporary tables and
+    # runs VACUUM, and both need every statement on the same server session -
+    # through PgBouncer in transaction mode a temp table vanishes between
+    # statements, intermittently, depending on which backend the pool hands out.
+    conn = connect(autocommit=True, direct=True)
     try:
         with conn.cursor() as cur:
             size = started_mb = db_mb(cur)

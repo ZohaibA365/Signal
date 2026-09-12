@@ -41,7 +41,7 @@ def _normalise(url: str) -> str:
     return re.sub(r"[?&]channel_binding=[^&]*", "", url)
 
 
-def connect(autocommit: bool = False, cursor_factory=None):
+def connect(autocommit: bool = False, cursor_factory=None, direct: bool = False):
     """
     Open a warehouse connection.
 
@@ -50,6 +50,15 @@ def connect(autocommit: bool = False, cursor_factory=None):
     connection never commits it, which leaves the session "idle in
     transaction", pinning vacuum and blocking DDL. A dashboard left open did
     exactly that for 22 hours.
+
+    Pass direct=True for anything whose statements must share one server session:
+    temporary tables, advisory locks, VACUUM. Neon's default endpoint is PgBouncer
+    in transaction mode, where a server connection is handed back between
+    transactions - so with autocommit, consecutive statements can land on different
+    backends. A CREATE TEMP TABLE then fails on the very next INSERT with
+    "relation does not exist", intermittently, because whether it works depends on
+    which backend the pool happens to give out. dbt's production profile names the
+    direct endpoint for the same reason.
     """
     url = connection_url()
     if url:
@@ -58,6 +67,8 @@ def connect(autocommit: bool = False, cursor_factory=None):
         # timeout turns that wake into a spurious failure.
         timeout = int(os.getenv("PG_CONNECT_TIMEOUT", "60"))
         primary = _normalise(url)
+        if direct:
+            primary = primary.replace("-pooler", "")
         kw = {"connect_timeout": timeout}
         if cursor_factory is not None:
             kw["cursor_factory"] = cursor_factory
