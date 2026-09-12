@@ -137,6 +137,14 @@ def archived_text(cur, bucket: str) -> int:
 
     s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "us-east-1"))
     manifest = load_manifest(s3, bucket)
+    # Dropped first, not merely created. A temp table is supposed to vanish with
+    # the session, but Neon is reached through PgBouncer in transaction mode, where
+    # a server connection outlives the client that used it - so a run that died
+    # before its cleanup left this table behind, and the next run failed with
+    # "relation 'archived_text' already exists" on a table it had just tried to
+    # create. That is how the retry of a failed prune failed differently from the
+    # prune.
+    cur.execute("DROP TABLE IF EXISTS archived_text")
     cur.execute("""
         CREATE TEMP TABLE archived_text (source TEXT, job_id TEXT, sha TEXT)
         ON COMMIT PRESERVE ROWS
@@ -197,6 +205,7 @@ def drop_text(cur, args) -> tuple[int, float]:
     # Empty descriptions are excluded rather than dropped: the archive skips
     # them, so they can never satisfy the membership test, and a zero-length
     # string costs nothing to keep.
+    cur.execute("DROP TABLE IF EXISTS to_drop")
     cur.execute(f"""
         CREATE TEMP TABLE to_drop AS
         SELECT r.source, r.job_id, length(r.description_raw) AS bytes
@@ -459,8 +468,13 @@ def main() -> None:
             # fortnight sitting at 415 MB.
             cleared = 0
             if not args.skip_text:
-                cleared, _ = drop_text(cur, args)
-                forget_temp_tables(cur)
+                # try/finally, because the working tables have to go even when the
+                # drop fails. They did not, once, and the next run inherited them
+                # through the connection pooler.
+                try:
+                    cleared, _ = drop_text(cur, args)
+                finally:
+                    forget_temp_tables(cur)
                 if cleared:
                     size = db_mb(cur)
                     log.info("database %.0f MB after text retention", size)

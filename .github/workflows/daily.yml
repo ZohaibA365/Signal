@@ -127,6 +127,23 @@ jobs:
       # The compounding asset, and the only step that cannot be backfilled:
       # the source API reports today's demand and nothing else, so a missed
       # run is a permanent hole in the series. It runs first for that reason.
+      # storage/schema.sql calls itself the single source of truth for structure,
+      # and CI applies it on every run - but nothing applied it to the warehouse
+      # behind the site, so a new column reached production only when somebody
+      # remembered an ALTER by hand. That is precisely how this run broke:
+      # raw_postings gained description_dropped_at in schema.sql and in CI, the
+      # loader's UPSERT started naming it, and both loads then failed against a
+      # production table that had never heard of it.
+      #
+      # Fatal on purpose, and safe to be: the file is entirely additive, the
+      # applier refuses to run one that is not, and every load after this point
+      # depends on the structure being current.
+      - name: Apply the schema
+        timeout-minutes: 10
+        run: >-
+          bash scripts/run_step.sh "Apply the schema"
+          python storage/apply_schema.py
+
       - name: Market snapshot
         id: snapshot
         # Non-fatal, though a missed snapshot IS a permanent hole - killing the
