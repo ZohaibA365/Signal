@@ -1,0 +1,119 @@
+name: Engine parity
+
+# Does Snowflake still agree with Postgres?
+#
+# The portability claim is only true while something checks it. Building on two
+# engines is not the check - the bug this exists for compiled cleanly on both and
+# returned different numbers: refuses_sponsorship found 3,172 postings on Postgres
+# and zero on Snowflake, and nothing failed anywhere. Three of the four
+# divergences found when this was first run were silent in exactly that way.
+#
+# Weekly, not daily. These are slow-moving properties of the SQL rather than of
+# the data, and each run wakes a warehouse - which is the only expensive mistake
+# available on Snowflake. Under the account's 5-credit monthly cap a weekly run is
+# a rounding error.
+#
+# Nothing in the serving path depends on this. It is allowed to fail without
+# consequence, and a failure means the two engines disagree, which is information
+# rather than an outage.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"          # Mondays, free-tier cron runs hours late anyway
+  workflow_dispatch:
+
+concurrency:
+  group: engine-parity
+  cancel-in-progress: false
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_DATABASE: SIGNAL_DB
+      SNOWFLAKE_SCHEMA: PUBLIC
+      SNOWFLAKE_WAREHOUSE: COMPUTE_WH
+      # SIGNAL_LOADER, not ACCOUNTADMIN. A CI credential is the one most likely to
+      # leak, and ACCOUNTADMIN can drop the account's billing configuration.
+      SNOWFLAKE_ROLE: SIGNAL_LOADER
+      SNOWFLAKE_PRIVATE_KEY_PATH: ${{ github.workspace }}/.snowflake_key.p8
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-snowflake.txt
+
+      # Key-pair auth, because the account enforces MFA and a password-presenting
+      # driver is rejected outright. The key is a secret rather than a file in the
+      # repo, and is written with restrictive permissions for the job's lifetime.
+      - name: Write the Snowflake key
+        run: |
+          if [ -z "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" ]; then
+            echo "::error::SNOWFLAKE_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > .snowflake_key.p8
+          chmod 600 .snowflake_key.p8
+          python -c "
+          from cryptography.hazmat.primitives import serialization
+          serialization.load_pem_private_key(open('.snowflake_key.p8','rb').read(), password=None)
+          print('key parses')
+          "
+
+      - name: Mirror the source tables to Snowflake
+        id: mirror
+        timeout-minutes: 20
+        run: >-
+          bash scripts/run_step.sh "Mirror to Snowflake"
+          python storage/load_to_snowflake.py
+
+      - name: Build every model on Snowflake
+        id: build
+        working-directory: dbt_signal
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          dbt deps --profiles-dir . --no-version-check
+          if ! dbt build --profiles-dir . --no-version-check --target snowflake \
+               2>&1 | tee /tmp/sf.log; then
+            {
+              echo "### Snowflake build failed"
+              echo '```'
+              tail -40 /tmp/sf.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            DETAIL=$(grep -iE "error|syntax|unexpected|does not exist" /tmp/sf.log \
+                     | head -10 | sed 's/"/\x27/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Snowflake build failed::${DETAIL:-see summary}"
+            exit 1
+          fi
+
+      # The actual deliverable. A difference here means identical SQL produced
+      # different answers, which is the failure mode that does not announce itself.
+      - name: Compare the engines
+        id: parity
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          python storage/parity_check.py 2>&1 | tee /tmp/parity.log
+          {
+            echo "## Engine parity"
+            echo '```'
+            grep -E "postgres|ok$|DIFFERS|agree" /tmp/parity.log | sed 's/^[0-9: ,-]*INFO *//'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the key
+        if: always()
+        run: rm -f .snowflake_key.p8

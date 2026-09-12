@@ -1,0 +1,120 @@
+name: DOL refresh
+
+# Refresh the H-1B filing data, quarterly, on Databricks.
+#
+# Four times a year is the real cadence: that is how often the Department of Labor
+# publishes a new LCA disclosure quarter. A daily schedule would re-download 576 MB
+# and re-run a Spark job against unchanged data three times out of four.
+#
+# Why Databricks at all, stated narrowly, because the honest version is the one
+# that survives a question. Not because 800,569 rows are large - a laptop handles
+# the aggregation when it has a JVM. Because:
+#
+#   1. the full filing detail is what Postgres structurally cannot hold, and
+#      everything richer than an employer-year summary needs it
+#   2. processing/dol_spark.py had no runtime at all: no JVM on the machine it was
+#      written for, and no workflow anywhere
+#   3. it let Neon shrink - dol_employer_summary went from 30 MB to 4.5 MB once the
+#      detail had somewhere else to live
+#
+# Manual dispatch by default. A cron is set so it cannot be forgotten entirely, but
+# the DOL publishes on no fixed day and the job is cheap to trigger by hand.
+
+on:
+  schedule:
+    # 4th of January, April, July and October - a few days after quarters land.
+    - cron: "0 6 4 1,4,7,10 *"
+  workflow_dispatch:
+    inputs:
+      quarters:
+        description: "Quarters to fetch, e.g. 2026Q2 (blank = the default set)"
+        type: string
+        required: false
+
+concurrency:
+  group: dol-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-spark.txt
+
+      - name: Check Databricks credentials
+        run: |
+          for v in DATABRICKS_HOST DATABRICKS_TOKEN; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v is not set; add it under Settings -> Secrets"
+              exit 1
+            fi
+          done
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+                 -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+                 "$DATABRICKS_HOST/api/2.0/preview/scim/v2/Me")
+          [ "$code" = "200" ] || { echo "::error::Databricks auth returned $code"; exit 1; }
+          echo "Databricks reachable"
+
+      # 576 MB of XLSX. Downloaded here rather than committed, and checked by
+      # blocks-on-disk rather than apparent size - the original six files were
+      # cloud placeholders reporting their full length with nothing behind them.
+      - name: Download the disclosure files
+        id: download
+        timeout-minutes: 30
+        run: >-
+          bash scripts/run_step.sh "Download DOL files"
+          python scripts/dol_download.py
+          ${{ inputs.quarters && format('--quarters {0}', inputs.quarters) || '' }}
+
+      # Spark cannot read XLSX, so the conversion is a prerequisite rather than an
+      # optimisation. 576 MB in becomes about 30 MB of Parquet out.
+      - name: Convert to Parquet
+        id: convert
+        timeout-minutes: 30
+        run: >-
+          bash scripts/run_step.sh "Convert to Parquet"
+          python ingestion/dol_ingest.py
+
+      # Push, not pull: Free Edition restricts outbound access to trusted domains
+      # and does not document whether an external S3 bucket is among them, so
+      # nothing here depends on the cluster reaching AWS.
+      - name: Push to Databricks and run the job
+        id: spark
+        timeout-minutes: 30
+        run: >-
+          bash scripts/run_step.sh "Databricks aggregation"
+          python scripts/dol_databricks_run.py
+
+      - name: Load the summary and prune
+        id: load
+        timeout-minutes: 20
+        run: >-
+          bash scripts/run_step.sh "Load DOL summary"
+          python storage/load_dol.py
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## DOL refresh"
+            echo "| step | outcome |"
+            echo "| --- | --- |"
+            echo "| download | ${{ steps.download.outcome || 'skipped' }} |"
+            echo "| convert | ${{ steps.convert.outcome || 'skipped' }} |"
+            echo "| databricks | ${{ steps.spark.outcome || 'skipped' }} |"
+            echo "| load and prune | ${{ steps.load.outcome || 'skipped' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
