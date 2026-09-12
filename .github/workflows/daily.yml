@@ -60,6 +60,11 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: us-east-1
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      # Not used by this pipeline. Present so the daily run can warn that the
+      # Databricks token is near expiry: the workflow that needs it runs
+      # quarterly and cannot notice in time.
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # Which candidate profile roles are scored against. candidate_profile.py defaults
       # to "cobol", so leaving this unset meant every daily score was computed
@@ -431,6 +436,15 @@ jobs:
       # complete one: warehouse counts and nothing else. The step outcomes make
       # a partial run legible at a glance, and they are the first thing to read
       # when the run failed.
+      # The DOL refresh runs quarterly, on dates a token expiry can fall between.
+      # Checked here because this is the workflow that runs every day, and a
+      # credential nobody watches is a failure scheduled for later.
+      - name: Warn if the Databricks token is near expiry
+        id: databricks_token
+        continue-on-error: true
+        timeout-minutes: 5
+        run: python scripts/check_databricks_token.py
+
       - name: Summarise the run
         if: always()
         # A step whose only job is to describe the run must not be able to end

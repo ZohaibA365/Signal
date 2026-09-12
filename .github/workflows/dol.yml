@@ -69,6 +69,12 @@ jobs:
           [ "$code" = "200" ] || { echo "::error::Databricks auth returned $code"; exit 1; }
           echo "Databricks reachable"
 
+      # A token that works today can still be the reason January's run fails, so
+      # the expiry is reported while someone is looking at this workflow.
+      - name: Check how long the token has left
+        continue-on-error: true
+        run: python scripts/check_databricks_token.py --days 120
+
       # 576 MB of XLSX. Downloaded here rather than committed, and checked by
       # blocks-on-disk rather than apparent size - the original six files were
       # cloud placeholders reporting their full length with nothing behind them.

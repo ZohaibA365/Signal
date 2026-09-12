@@ -8,10 +8,14 @@ name: Engine parity
 # and zero on Snowflake, and nothing failed anywhere. Three of the four
 # divergences found when this was first run were silent in exactly that way.
 #
-# Weekly, not daily. These are slow-moving properties of the SQL rather than of
-# the data, and each run wakes a warehouse - which is the only expensive mistake
-# available on Snowflake. Under the account's 5-credit monthly cap a weekly run is
-# a rounding error.
+# Weekly, plus any push that changes the SQL. These are slow-moving properties of
+# the SQL rather than of the data, and each run wakes a warehouse - which is the
+# only expensive mistake available on Snowflake. Measured: a full run costs about
+# 0.2 credits, the warehouse is X-Small and suspends after 60 seconds idle, and
+# the account monitor caps the month at 5 credits. So roughly twenty runs a month
+# fit, which a weekly cron plus occasional model changes does not approach. If the
+# cap is ever reached the warehouse suspends and this workflow fails loudly, which
+# is the right failure: nothing in the serving path depends on it.
 #
 # Nothing in the serving path depends on this. It is allowed to fail without
 # consequence, and a failure means the two engines disagree, which is information
