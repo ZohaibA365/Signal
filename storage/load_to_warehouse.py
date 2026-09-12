@@ -74,6 +74,13 @@ ON CONFLICT (source, job_id) DO UPDATE SET
     -- instead of allocating a new entry, so an unchanged posting costs
     -- nothing beyond its heap tuple.
     description_raw     = CASE
+        -- Text this posting deliberately no longer keeps must not come back.
+        -- The posting is still open and still in the feed, so every run offers
+        -- the full description again; restoring it would undo storage/prune.py
+        -- overnight, every night. S3 holds the text, and the verdicts below are
+        -- still recomputed from the incoming copy, so nothing is lost by
+        -- refusing it here.
+        WHEN raw_postings.description_dropped_at IS NOT NULL THEN NULL
         WHEN raw_postings.description_raw IS NOT DISTINCT FROM EXCLUDED.description_raw
         THEN raw_postings.description_raw
         ELSE EXCLUDED.description_raw

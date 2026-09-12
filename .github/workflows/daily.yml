@@ -201,15 +201,23 @@ jobs:
       #
       # Descriptions are working storage, not a record: nothing displays them,
       # only extraction and scoring read them, and S3 keeps the originals.
-      # Pruning the oldest text back until the database is under target keeps
-      # the load able to run every day rather than until the next ceiling.
+      # Two stages, and only the first runs every day. Text retention drops
+      # descriptions older than a week once S3 holds them, which is where the
+      # volume is; deleting whole postings happens only if that leaves the
+      # database over target. --reclaim hands the space back rather than leaving
+      # it merely reusable, which is the difference Neon's meter sees.
+      #
+      # Placed before the loaders on purpose: the room has to exist before the
+      # run tries to use it. "could not extend file because project size limit
+      # has been exceeded" is what failed the load and skipped the seven steps
+      # after it.
       - name: Make room in the warehouse
         id: prune
         continue-on-error: true
         timeout-minutes: 15
         run: >-
           bash scripts/run_step.sh "Make room in the warehouse"
-          python storage/prune.py --apply --target-mb 380
+          python storage/prune.py --apply --reclaim --target-mb 380
 
       - name: Load aggregator postings to warehouse
         continue-on-error: true

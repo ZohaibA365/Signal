@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS raw_postings (
 ALTER TABLE raw_postings ADD COLUMN IF NOT EXISTS refuses_sponsorship BOOLEAN;
 ALTER TABLE raw_postings ADD COLUMN IF NOT EXISTS offers_sponsorship  BOOLEAN;
 
+-- When storage/prune.py dropped this posting's text, having confirmed S3 holds
+-- it. The column exists because the posting stays live and is re-seen on every
+-- ingest: without a marker the loader cannot tell "we deliberately stopped
+-- keeping this text" from "this posting has no text", so the UPSERT would
+-- restore all of it every morning and undo the retention rule overnight.
+ALTER TABLE raw_postings ADD COLUMN IF NOT EXISTS description_dropped_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_raw_postings_company     ON raw_postings (company_name);
 CREATE INDEX IF NOT EXISTS idx_raw_postings_posted_date ON raw_postings (posted_date DESC);
 CREATE INDEX IF NOT EXISTS idx_raw_postings_last_seen   ON raw_postings (last_seen DESC);
