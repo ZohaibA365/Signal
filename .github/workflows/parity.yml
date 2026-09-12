@@ -56,20 +56,20 @@ jobs:
       # Key-pair auth, because the account enforces MFA and a password-presenting
       # driver is rejected outright. The key is a secret rather than a file in the
       # repo, and is written with restrictive permissions for the job's lifetime.
+      # A PEM is a multi-line value being pasted into a one-line form, so the
+      # line breaks are the part that goes missing - and that is exactly how the
+      # first run of this workflow failed: secret present, key unparseable,
+      # nothing downstream reached. scripts/snowflake_key.py rebuilds the PEM
+      # from whichever shape survived, and refuses anything that is not a
+      # private key rather than writing a file that fails later inside a driver.
+      #
+      # The secret goes through the environment, not through the command line:
+      # an expression interpolated into a run: block is substituted before bash
+      # sees it, which puts the key in the script itself.
       - name: Write the Snowflake key
-        run: |
-          if [ -z "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" ]; then
-            echo "::error::SNOWFLAKE_PRIVATE_KEY secret is not set"
-            exit 1
-          fi
-          umask 077
-          printf '%s' "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > .snowflake_key.p8
-          chmod 600 .snowflake_key.p8
-          python -c "
-          from cryptography.hazmat.primitives import serialization
-          serialization.load_pem_private_key(open('.snowflake_key.p8','rb').read(), password=None)
-          print('key parses')
-          "
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+        run: python scripts/snowflake_key.py "$SNOWFLAKE_PRIVATE_KEY_PATH"
 
       - name: Mirror the source tables to Snowflake
         id: mirror
@@ -116,4 +116,4 @@ jobs:
 
       - name: Remove the key
         if: always()
-        run: rm -f .snowflake_key.p8
+        run: rm -f "$SNOWFLAKE_PRIVATE_KEY_PATH"
