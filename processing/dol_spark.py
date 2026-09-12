@@ -47,13 +47,15 @@ log = logging.getLogger("dol_spark")
 IN_DIR = "data/dol_parquet"
 OUT_DIR = "data/dol_employer_summary"
 
-# Where the same data lives on Databricks. A Volume rather than the user's S3
-# bucket: Free Edition restricts outbound access to a set of trusted domains and
+# Where the same data lives on Databricks. Under the workspace catalog, because
+# Free Edition provides that one and does not let a new catalog be created.
+#
+# A Volume rather than the user's S3 bucket: Free Edition restricts outbound access to a set of trusted domains and
 # does not document whether an external bucket is among them, so the pipeline
 # pushes 30 MB of Parquet in rather than relying on the cluster reaching out. If
 # external reads do turn out to work, this is a one-line change.
-DBFS_IN = "/Volumes/signal/dol/parquet"
-DBFS_OUT = "/Volumes/signal/dol/employer_summary"
+DBFS_IN = "/Volumes/workspace/signal_dol/lake/parquet"
+DBFS_OUT = "/Volumes/workspace/signal_dol/lake/employer_summary"
 
 # Titles that indicate data/software work, so the summary can answer "does this
 # employer sponsor for roles like mine" rather than only "does it sponsor".
@@ -89,14 +91,36 @@ def session() -> SparkSession:
                    .config("spark.sql.shuffle.partitions", "16")  # laptop, not cluster
                    .config("spark.driver.memory", "4g"))
     spark = builder.getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
+    if not on_databricks():
+        # sparkContext reaches the driver JVM directly, and serverless compute
+        # refuses that outright:
+        #
+        #   [JVM_ATTRIBUTE_NOT_SUPPORTED] Directly accessing the underlying
+        #   Spark driver JVM using the attribute 'sparkContext' is not supported
+        #   on serverless compute.
+        #
+        # Quieting the logs is a local convenience anyway - Databricks manages
+        # log level itself - so it simply does not happen there. This is the kind
+        # of incompatibility that only appears when the same job runs on a second
+        # runtime, which is most of the argument for running it on one.
+        spark.sparkContext.setLogLevel("WARN")
     return spark
 
 
 def build(spark: SparkSession, in_dir: str, out_dir: str) -> None:
     df = spark.read.parquet(in_dir)
-    log.info("Loaded %s filings across %s partitions",
-             f"{df.count():,}", df.rdd.getNumPartitions())
+    # Row count only. The partition count came from df.rdd.getNumPartitions(),
+    # and serverless compute refuses any RDD access:
+    #
+    #   [NOT_IMPLEMENTED] Using custom code using PySpark RDDs is not allowed
+    #   on serverless compute.
+    #
+    # It was only ever a log line, and partition counts are the cluster's business
+    # rather than this job's. Third restriction of the same family found by moving
+    # one job to a managed runtime - no Volume-hosted entry point, no driver JVM,
+    # no RDDs - all three things a laptop allows and a serverless platform does
+    # not.
+    log.info("Loaded %s filings", f"{df.count():,}")
 
     df = (
         df.filter(F.col("employer_key").isNotNull())

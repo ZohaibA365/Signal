@@ -60,9 +60,9 @@ resources:
             python_file: processing/dol_spark.py
             parameters:
               - --in-dir
-              - /Volumes/signal/dol/parquet
+              - /Volumes/workspace/signal_dol/lake/parquet
               - --out-dir
-              - /Volumes/signal/dol/employer_summary
+              - /Volumes/workspace/signal_dol/lake/employer_summary
 
       environments:
         - environment_key: default

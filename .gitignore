@@ -67,3 +67,10 @@ data/dol_employer_summary/
 # Generated static site
 site/dist/
 github-secrets.txt
+
+# Snowflake key-pair auth. The private key never leaves this machine; only the
+# public half is registered on the Snowflake user. Key-pair rather than password
+# because the account now enforces MFA, which by design cannot be satisfied by a
+# script - and because the password is recoverable from a chat transcript.
+.snowflake_key.p8
+.snowflake_key.pub
