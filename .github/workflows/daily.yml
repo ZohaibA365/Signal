@@ -433,6 +433,11 @@ jobs:
       # when the run failed.
       - name: Summarise the run
         if: always()
+        # A step whose only job is to describe the run must not be able to end
+        # it. This one reads the warehouse, and a warehouse that has gone away is
+        # already reported by the steps that needed it - having the report fail
+        # too would turn a legible partial run into an unexplained red X.
+        continue-on-error: true
         run: |
           {
             echo "## Daily pipeline"

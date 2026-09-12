@@ -122,7 +122,7 @@ def test_only_genuine_preconditions_are_fatal():
     """
     allowed = {"Install dependencies", "Check secrets are present",
                "Check warehouse reachable", "Derive warehouse credentials for dbt",
-               "Install dbt packages", "Summarise the run",
+               "Install dbt packages",
                "Decide the run outcome"}
     fatal = [s["name"] for s in _steps() if not s.get("continue-on-error")]
     assert set(fatal) <= allowed, f"new fatal step(s): {set(fatal) - allowed}"
