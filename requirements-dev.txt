@@ -10,6 +10,12 @@ requests==2.34.2
 dbt-core==1.12.3
 dbt-postgres==1.11.0
 
+# Parquet, for the S3 archive. Declared explicitly even though dbt-core happens
+# to pull it in: the archive reads and writes Parquet directly, and a dependency
+# that arrives only as somebody else's transitive requirement is one a version
+# bump can remove without warning.
+pyarrow==25.0.1
+
 # History over the S3 Parquet archive. Queries it in place over httpfs, so
 # there is no load step, no cluster and no bill - the posting panel is ~54,000
 # rows a day and cannot live in a 512 MB Postgres.

@@ -29,8 +29,6 @@ import os
 import re
 import sys
 
-from cryptography.hazmat.primitives import serialization
-
 BEGIN = "-----BEGIN PRIVATE KEY-----"
 END = "-----END PRIVATE KEY-----"
 
@@ -74,6 +72,12 @@ def main() -> None:
     raw = os.getenv("SNOWFLAKE_PRIVATE_KEY")
     if not raw:
         raise SystemExit("SNOWFLAKE_PRIVATE_KEY is not set")
+
+    # Imported here, not at module scope. cryptography ships with the Snowflake
+    # requirements, which CI deliberately does not install, and a module-level
+    # import would make tests/ fail to collect - which is exactly how this broke
+    # CI once already, with pyspark.
+    from cryptography.hazmat.primitives import serialization
 
     pem = normalise(raw)
     # Written before parsing so the mode is never briefly wider than this.

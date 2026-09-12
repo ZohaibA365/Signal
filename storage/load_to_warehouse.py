@@ -209,7 +209,28 @@ def main() -> None:
     parser.add_argument("--boards", action="store_true",
                         help="load company career-board partitions instead of Adzuna")
     parser.add_argument("--dry-run", action="store_true", help="parse but do not write")
+    parser.add_argument("--backfill-verdicts-only", action="store_true",
+                        help="evaluate the sponsorship verdicts on rows that have "
+                             "none, then stop - no S3 read, no load")
     args = parser.parse_args()
+
+    # A row loaded before the verdicts existed has NULL in both columns, and
+    # stg_jobs reads them directly now, so such a row looks as though its text
+    # never mentioned sponsorship. The loader fixes that as it goes, but anything
+    # comparing the two engines has to be able to ask for it on its own: a
+    # half-backfilled table makes the engines differ for a reason that is about
+    # loading order rather than about SQL.
+    if args.backfill_verdicts_only:
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(BACKFILL_VERDICTS)
+                log.info("Evaluated the sponsorship verdicts on %s row(s)",
+                         f"{cur.rowcount:,}")
+            conn.commit()
+        finally:
+            conn.close()
+        return
 
     ingest_date = args.date or datetime.now(UTC).strftime("%Y-%m-%d")
     seen_at = datetime.now(UTC).isoformat()

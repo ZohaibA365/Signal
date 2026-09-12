@@ -60,7 +60,7 @@ jobs:
           pip install -r requirements-dev.txt ruff
 
       - name: Lint
-        run: ruff check ingestion storage ai_layer outreach streaming quality processing analytics tests
+        run: ruff check ingestion storage ai_layer outreach streaming quality processing analytics tests scripts
 
       - name: Unit tests
         run: pytest -q

@@ -18,12 +18,29 @@ name: Engine parity
 # rather than an outage.
 
 on:
+  # On a push that changes the SQL or the mirror, because those are the only
+  # changes that can break engine parity - and waiting a week to find out, or for
+  # somebody to remember to click, is how a divergence reached the published site
+  # twice. Paths are narrow on purpose: every run wakes a warehouse, which is the
+  # only expensive mistake available on Snowflake.
+  push:
+    branches: [main]
+    paths:
+      - "dbt_signal/**"
+      - "storage/load_to_snowflake.py"
+      - "storage/parity_check.py"
+      - "storage/sponsorship_text.py"
+      - "storage/schema.sql"
+      - ".github/workflows/parity.yml"
   schedule:
     - cron: "0 6 * * 1"          # Mondays, free-tier cron runs hours late anyway
   workflow_dispatch:
 
+# Shares the daily pipeline's group rather than having its own. Both run dbt
+# against the same Postgres schema, and two builds dropping and recreating the
+# same tables at once is a failure with no useful error attached to it.
 concurrency:
-  group: engine-parity
+  group: daily-pipeline
   cancel-in-progress: false
 
 jobs:
@@ -70,6 +87,49 @@ jobs:
         env:
           SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
         run: python scripts/snowflake_key.py "$SNOWFLAKE_PRIVATE_KEY_PATH"
+
+      # dbt needs the warehouse credentials the same way the daily pipeline does,
+      # from the one secret rather than three that can drift apart.
+      - name: Derive warehouse credentials for dbt
+        run: bash scripts/derive_dbt_credentials.sh
+
+      # A row loaded before the sponsorship verdicts existed has NULL in both
+      # columns, and stg_jobs reads them straight through, so such a row looks as
+      # though its text never mentioned sponsorship. The loader evaluates them as
+      # it goes; this makes sure the comparison never runs against a table that is
+      # only half evaluated, which is a difference about loading order rather than
+      # about SQL.
+      - name: Evaluate any missing sponsorship verdicts
+        timeout-minutes: 10
+        run: python storage/load_to_warehouse.py --backfill-verdicts-only
+
+      # Both engines must run the SAME model code, and that is what went wrong on
+      # the first run that got this far. It compared a Snowflake build made
+      # minutes earlier against a Postgres view the daily pipeline had built nine
+      # hours before, from the previous commit. Two checks differed, and the
+      # disagreement was real - the two engines were running different SQL.
+      #
+      # So Postgres is rebuilt from this checkout first. It is the same build the
+      # daily pipeline runs, against the same warehouse, so it costs nothing and
+      # risks nothing the daily run does not already.
+      - name: Rebuild the models on Postgres
+        id: pg_build
+        working-directory: dbt_signal
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          dbt deps --profiles-dir . --no-version-check
+          if ! dbt build --profiles-dir . --no-version-check --target prod \
+               2>&1 | tee /tmp/pg.log; then
+            {
+              echo "### Postgres build failed"
+              echo '```'
+              tail -40 /tmp/pg.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Postgres build failed::see the run summary"
+            exit 1
+          fi
 
       - name: Mirror the source tables to Snowflake
         id: mirror

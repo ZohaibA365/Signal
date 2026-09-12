@@ -325,44 +325,13 @@ jobs:
       # unnoticed because the run had not reached the transform since the
       # secrets were added - every failure before today was at an earlier
       # step.
-      # dbt's profiles.yml reads NEON_USER and NEON_PASSWORD, deliberately
-      # without defaults so no password is committed. Locally those come from
-      # .env, which dbt loads by itself - dbt/cli/main.py calls
-      # load_dotenv(find_dotenv(usecwd=True)) on startup. CI has no .env,
-      # because it is gitignored, so dbt failed at parse time with "Env var
-      # required but not provided: 'NEON_USER'" and exited 2 instantly.
-      #
-      # That auto-loading is exactly why the failure resisted diagnosis: the
-      # same command passes locally and fails in CI, and the error never left
-      # the runner.
-      #
-      # Both are derived from DATABASE_URL rather than added as new secrets,
-      # so there is one credential to rotate rather than three that can drift
-      # apart.
+
+      # Why this is needed at all, and why it is a script rather than inline
+      # here, is written at the top of scripts/derive_dbt_credentials.sh. The
+      # parity workflow needs the identical setup, and it failing for want of a
+      # copy of this is exactly the kind of gap that costs a day.
       - name: Derive warehouse credentials for dbt
-        run: |
-          # Two destinations, and they are not interchangeable: ::add-mask::
-          # is a workflow command and must go to STDOUT, while NAME=VALUE
-          # pairs go to the $GITHUB_ENV file. Writing the mask command into
-          # the env file fails the step with "Invalid format".
-          CREDS=$(python - <<'PY'
-          import os, urllib.parse as up
-          raw = os.environ["DATABASE_URL"].strip().strip("'\"")
-          p = up.urlparse(raw)
-          user = up.unquote(p.username or "")
-          pw = up.unquote(p.password or "")
-          if not user or not pw:
-              raise SystemExit("DATABASE_URL carries no user or password")
-          print(user)
-          print(pw)
-          PY
-          )
-          NEON_USER=$(printf '%s\n' "$CREDS" | sed -n 1p)
-          NEON_PASSWORD=$(printf '%s\n' "$CREDS" | sed -n 2p)
-          echo "::add-mask::$NEON_PASSWORD"
-          echo "NEON_USER=$NEON_USER" >> "$GITHUB_ENV"
-          echo "NEON_PASSWORD=$NEON_PASSWORD" >> "$GITHUB_ENV"
-          echo "derived credentials for user $NEON_USER"
+        run: bash scripts/derive_dbt_credentials.sh
 
       - name: Install dbt packages
         timeout-minutes: 5
