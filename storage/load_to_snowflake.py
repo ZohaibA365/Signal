@@ -27,12 +27,12 @@ import sys
 import warnings
 
 import pandas as pd
-import snowflake.connector as sf
 from dotenv import load_dotenv
 from snowflake.connector.pandas_tools import write_pandas
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from db import connect  # noqa: E402
+from db import connect as pg_connect  # noqa: E402
+from snowflake_db import connect, describe  # noqa: E402
 
 load_dotenv()
 
@@ -54,16 +54,16 @@ TABLES = [
 
 
 def snowflake_conn():
-    return sf.connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        database=os.getenv("SNOWFLAKE_DATABASE", "SIGNAL_DB"),
-        schema=os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
-        role=os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
-        login_timeout=30,
-    )
+    """
+    Delegates to storage/snowflake_db.py, which uses key-pair auth.
+
+    This used to pass a password and default the role to ACCOUNTADMIN. Both were
+    wrong. The account now enforces MFA, which a password-presenting driver
+    cannot satisfy at all - and ACCOUNTADMIN for a loader that writes eight
+    tables is the kind of grant that matters precisely because a CI credential is
+    the one most likely to leak.
+    """
+    return connect()
 
 
 def serialise_complex(df: pd.DataFrame) -> pd.DataFrame:
@@ -84,9 +84,9 @@ def main() -> None:
     ap.add_argument("--tables", nargs="+", default=TABLES)
     args = ap.parse_args()
 
-    pg = connect(autocommit=True)
+    pg = pg_connect(autocommit=True)
     sc = snowflake_conn()
-    log.info("Loading %s table(s) into Snowflake", len(args.tables))
+    log.info("Loading %s table(s) into %s", len(args.tables), describe())
 
     for table in args.tables:
         with warnings.catch_warnings():

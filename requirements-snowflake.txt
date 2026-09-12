@@ -12,3 +12,8 @@ snowflake-connector-python==4.7.2
 
 # Pairs with the dbt-core 1.12.3 pinned in requirements-dev.txt.
 dbt-snowflake==1.12.0
+
+# Key-pair authentication. The account enforces MFA, which a password-presenting
+# driver cannot satisfy, so the private key is loaded and converted to DER before
+# the connector sees it.
+cryptography==50.0.1
