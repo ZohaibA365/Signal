@@ -4,6 +4,9 @@ name: CI
 # spins up its own Postgres, seeds a small fixture and builds the whole dbt
 # project against it. A pipeline whose tests only run when credentials are
 # present is a pipeline whose tests stop running.
+#
+# Every step below can be run locally first, against a throwaway container:
+#   bash scripts/ci_rehearse.sh
 on:
   push:
     branches: [main]

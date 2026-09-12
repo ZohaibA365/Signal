@@ -37,5 +37,15 @@ BEGIN
   SELECT count(*) INTO n FROM int_company_sponsorship WHERE is_confident_match;
   IF n < 2 THEN RAISE EXCEPTION 'sponsorship confidence grading lost (% rows)', n; END IF;
 
+  -- The sponsorship verdicts are now stored on raw_postings and read straight
+  -- through by staging, so a break is silent: every posting simply looks as
+  -- though its text never mentioned sponsorship. One fixture posting refuses
+  -- across a line break and one offers.
+  SELECT count(*) INTO n FROM stg_jobs WHERE refuses_sponsorship;
+  IF n <> 1 THEN RAISE EXCEPTION 'stored sponsorship refusal lost (expected 1, got %)', n; END IF;
+
+  SELECT count(*) INTO n FROM stg_jobs WHERE offers_sponsorship;
+  IF n <> 1 THEN RAISE EXCEPTION 'stored sponsorship offer lost (expected 1, got %)', n; END IF;
+
   RAISE NOTICE 'all behavioural assertions passed';
 END $$;

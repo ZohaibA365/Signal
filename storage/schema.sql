@@ -41,6 +41,23 @@ CREATE TABLE IF NOT EXISTS raw_postings (
     PRIMARY KEY (source, job_id)
 );
 
+-- The sponsorship verdict, evaluated once at load time rather than recomputed
+-- from description_raw on every dbt run.
+--
+-- Two reasons. The text is 208 MB of a 512 MB budget and its only other readers -
+-- technology extraction and LLM scoring - finish with a posting permanently,
+-- while these booleans are read on every site build; storing them is what lets
+-- the text be dropped. And the predicates were the source of three separate
+-- cross-engine bugs, because Postgres and Snowflake disagree about regex
+-- anchoring, about whether . crosses a newline, and about adjacent string
+-- literals. Computing them in Postgres on the way in leaves the portable models
+-- with no regex over description text at all.
+--
+-- Patterns live in storage/sponsorship_text.py, in one place, used by both the
+-- loader and the backfill.
+ALTER TABLE raw_postings ADD COLUMN IF NOT EXISTS refuses_sponsorship BOOLEAN;
+ALTER TABLE raw_postings ADD COLUMN IF NOT EXISTS offers_sponsorship  BOOLEAN;
+
 CREATE INDEX IF NOT EXISTS idx_raw_postings_company     ON raw_postings (company_name);
 CREATE INDEX IF NOT EXISTS idx_raw_postings_posted_date ON raw_postings (posted_date DESC);
 CREATE INDEX IF NOT EXISTS idx_raw_postings_last_seen   ON raw_postings (last_seen DESC);

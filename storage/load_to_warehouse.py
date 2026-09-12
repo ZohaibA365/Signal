@@ -31,6 +31,7 @@ from psycopg2.extras import execute_values
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import connect  # noqa: E402
 from location import clean_department, parse_location  # noqa: E402
+from sponsorship_text import offers_sql, refuses_sql  # noqa: E402
 
 load_dotenv()
 
@@ -83,7 +84,26 @@ ON CONFLICT (source, job_id) DO UPDATE SET
     location_area       = EXCLUDED.location_area,
     search_term         = EXCLUDED.search_term,
     ingested_at         = EXCLUDED.ingested_at,
-    last_seen           = EXCLUDED.last_seen
+    last_seen           = EXCLUDED.last_seen,
+    -- Evaluated here, once per load, rather than in stg_jobs on every dbt run.
+    -- That is what lets description_raw be dropped later: the only other readers
+    -- of the text are technology extraction and LLM scoring, each of which
+    -- finishes with a posting permanently, while these two booleans are read by
+    -- the site on every build. Computed from EXCLUDED so an edited description is
+    -- re-evaluated rather than keeping a stale verdict.
+    refuses_sponsorship = {refuses_sql("EXCLUDED.description_raw")},
+    offers_sponsorship  = {offers_sql("EXCLUDED.description_raw")}
+"""
+
+# Newly inserted rows get them too. The INSERT goes through execute_values, which
+# takes literal tuples and cannot carry a computed expression, so this runs once
+# after the batch and touches only rows that do not have a verdict yet.
+BACKFILL_VERDICTS = f"""
+UPDATE raw_postings SET
+    refuses_sponsorship = {refuses_sql()},
+    offers_sponsorship  = {offers_sql()}
+WHERE description_raw IS NOT NULL
+  AND (refuses_sponsorship IS NULL OR offers_sponsorship IS NULL)
 """
 
 
@@ -241,6 +261,13 @@ def main() -> None:
             cur.execute("SELECT count(*) FROM raw_postings")
             before = cur.fetchone()[0]
             execute_values(cur, UPSERT, list(deduped.values()), page_size=200)
+            # Rows the UPSERT inserted rather than updated have no verdict yet,
+            # because execute_values carries literal tuples and cannot evaluate an
+            # expression. One statement, only over rows that are missing it.
+            cur.execute(BACKFILL_VERDICTS)
+            if cur.rowcount:
+                log.info("  set sponsorship verdicts on %s new posting(s)",
+                         f"{cur.rowcount:,}")
             cur.execute("SELECT count(*) FROM raw_postings")
             after = cur.fetchone()[0]
     finally:

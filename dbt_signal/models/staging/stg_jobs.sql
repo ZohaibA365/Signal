@@ -106,6 +106,11 @@ cleaned as (
 
         regexp_like(job_title, '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$', 'i') as is_internship,
 
+        -- Evaluated at load time by storage/sponsorship_text.py and stored, not
+        -- recomputed here. Carried through so description_raw does not have to be.
+        source.refuses_sponsorship,
+        source.offers_sponsorship,
+
         -- Adzuna keeps postings live long after they are realistically open.
         (current_date - posted_date::date) > 60  as is_stale
 
@@ -223,30 +228,23 @@ select
       sponsorship refusal. Spark SQL accepts || as well, so one form serves all
       three.
     */
-    regexp_like(coalesce(description_raw, ''),
-                '.*(will not|does not|do not|cannot|can not|are not able to|'
-             || 'unable to|not be able to|not offer|not provide)'
-             || '[^.]{0,80}sponsor.*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*sponsorship[^.]{0,60}(is not|not available|will not be|'
-             || 'cannot be|is unavailable).*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*does not now or in the future require sponsorship.*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*do not apply[^.]{0,80}sponsor.*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*without the need for[^.]{0,40}sponsor.*', 'is')
-                                                          as refuses_sponsorship,
-
-    -- Only where the employer is plainly the one offering. Deliberately
-    -- narrow: this exists to describe a posting, never to cancel a refusal.
-    regexp_like(coalesce(description_raw, ''),
-                '.*(we|company) (do|does|will|can|are able to|are willing to|'
-             || 'are happy to)[^.]{0,20}sponsor.*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*sponsorship (is|will be) available.*', 'is')
-    or regexp_like(coalesce(description_raw, ''),
-                '.*will consider sponsor.*', 'is')             as offers_sponsorship,
+    -- Read, not recomputed. These are evaluated once per posting when it is
+    -- loaded, by storage/sponsorship_text.py, and stored on raw_postings.
+    --
+    -- Two reasons they moved. Recomputing them here meant description_raw could
+    -- never leave the serving database, and that text is 208 MB of a 512 MB
+    -- budget for something whose only other readers - technology extraction and
+    -- LLM scoring - have already finished with it.
+    --
+    -- And these predicates were the source of three separate cross-engine bugs:
+    -- Postgres regexp_like searches anywhere while Snowflake's matches the whole
+    -- string, Snowflake's . stops at a line break without the s flag, and
+    -- adjacent quoted strings concatenate on Postgres but are a syntax error on
+    -- Snowflake. refuses_sponsorship read 3,172 on Postgres and 0 on Snowflake
+    -- with nothing failing. Computing them once, in Postgres, on the way in
+    -- leaves this layer with no regex over description text at all.
+    coalesce(refuses_sponsorship, false)                  as refuses_sponsorship,
+    coalesce(offers_sponsorship, false)                   as offers_sponsorship,
 
     case when source = 'company_board' then redirect_url end   as link_url,
     case when source = 'company_board' then 'direct'
