@@ -1,0 +1,86 @@
+company_name,employer_key,label,why
+Anduril,,absent,no filing under this or any prefix of it; cleared-work employer
+Anduril Industries,,absent,no filing under this or any prefix of it; cleared-work employer
+SpaceX,,absent,no filing under this or any prefix of it; cleared-work employer
+AbbVie Inc.,ABBVIE,match,"exact after normalisation; 507 postings, 280 filings"
+"Alten Technology USA, Inc.",ALTEN TECHNOLOGY,match,"exact after normalisation; 210 postings, 103 filings"
+American Heart Association,AMERICAN HEART ASSOCIATION,match,"exact after normalisation; 341 postings, 6 filings"
+Anthropic,ANTHROPIC PBC,match,hand-verified in employer_aliases.csv
+Anthropic,ANTHROPIC PBC D B A ANTHROPIC,match,hand-verified in employer_aliases.csv
+Attentive,ATTENTIVE MOBILE,match,hand-verified in employer_aliases.csv
+Axon,AXON,match,"exact after normalisation; 474 postings, 3 filings"
+Base Power Company,BASE POWER,match,"exact after normalisation; 189 postings, 7 filings"
+BMO,BMO BANK N A,match,hand-verified in employer_aliases.csv
+BMO,BMO CAPITAL MARKETS,match,hand-verified in employer_aliases.csv
+BMO,BMO HARRIS BANK N A,match,hand-verified in employer_aliases.csv
+Booz Allen Hamilton,BOOZ ALLEN HAMILTON,match,"exact after normalisation; 1206 postings, 16 filings"
+Brex Inc.,BREX,match,"exact after normalisation; 286 postings, 35 filings"
+Capital One,CAPITAL ONE NATIONAL ASSOCIATION,match,hand-verified in employer_aliases.csv
+Capital One,CAPITAL ONE SERVICES,match,hand-verified in employer_aliases.csv
+"Carvana, LLC",CARVANA,match,"exact after normalisation; 1877 postings, 44 filings"
+Cognizant,COGNIZANT MOBILITY,match,hand-verified in employer_aliases.csv
+Cognizant,COGNIZANT TECHNOLOGY SOLUTIONS,match,hand-verified in employer_aliases.csv
+Cognizant,COGNIZANT TRIZETTO SOFTWARE GROUP,match,hand-verified in employer_aliases.csv
+Cognizant,COGNIZANT WORLDWIDE,match,hand-verified in employer_aliases.csv
+"Coinbase, Inc.",COINBASE,match,"exact after normalisation; 297 postings, 188 filings"
+Commvault,COMMVAULT SYSTEMS,match,hand-verified in employer_aliases.csv
+Continental,CONTINENTAL AUTOMOTIVE SYSTEMS,match,hand-verified in employer_aliases.csv
+Continental,CONTINENTAL AUTONOMOUS MOBILITY,match,hand-verified in employer_aliases.csv
+"CoreWeave, Inc.",COREWEAVE,match,"exact after normalisation; 297 postings, 28 filings"
+"Databricks, Inc.",DATABRICKS,match,"exact after normalisation; 518 postings, 388 filings"
+"Datadog, Inc.",DATADOG,match,"exact after normalisation; 233 postings, 130 filings"
+Deloitte,DELOITTE,match,"exact after normalisation; 244 postings, 16 filings"
+Esri,ENVIRONMENTAL SYSTEMS RESEARCH INSTITUTE ESRI,match,hand-verified in employer_aliases.csv
+Eurofins,EUROFINS LANCASTER LABORATORIES PROFESSIONAL SCIENTIFIC SERVICES,match,hand-verified in employer_aliases.csv
+Experian,EXPERIAN INFORMATION SOLUTIONS,match,hand-verified in employer_aliases.csv
+FiveTran,FIVETRAN,match,"exact after normalisation; 211 postings, 11 filings"
+Fluidstack,FLUIDSTACK,match,"exact after normalisation; 262 postings, 2 filings"
+"Form Energy, Inc.",FORM ENERGY,match,"exact after normalisation; 204 postings, 29 filings"
+General Motors,GENERAL MOTORS,match,"exact after normalisation; 645 postings, 795 filings"
+Indeed,INDEED,match,"exact after normalisation; 204 postings, 221 filings"
+Intuitive,INTUITIVE SURGICAL,match,hand-verified in employer_aliases.csv
+Intuitive,INTUITIVE SURGICAL OPERATIONS,match,hand-verified in employer_aliases.csv
+Lucid Motors,LUCID GROUP,match,hand-verified in employer_aliases.csv
+"LYFT, Inc.",LYFT,match,"exact after normalisation; 219 postings, 141 filings"
+Medtronic,MEDTRONIC,match,"exact after normalisation; 242 postings, 353 filings"
+Mindlance,MINDLANCE,match,"exact after normalisation; 302 postings, 71 filings"
+Motional,MOTIONAL AD,match,hand-verified in employer_aliases.csv
+"Natera, Inc.",NATERA,match,"exact after normalisation; 232 postings, 90 filings"
+NBCUniversal,NBCUNIVERSAL MEDIA,match,hand-verified in employer_aliases.csv
+"Okta, Inc.",OKTA,match,"exact after normalisation; 184 postings, 120 filings"
+Olsson,OLSSON,match,"exact after normalisation; 409 postings, 11 filings"
+Oracle,ORACLE AMERICA,match,hand-verified in employer_aliases.csv
+Oracle,ORACLE FINANCIAL SERVICES SOFTWARE,match,hand-verified in employer_aliases.csv
+Palantir Technologies,PALANTIR TECHNOLOGIES,match,"exact after normalisation; 238 postings, 114 filings"
+PwC,PRICEWATERHOUSECOOPERS ADVISORY SERVICES,match,hand-verified in employer_aliases.csv
+PwC,PWC BUSINESS ADVISORY,match,hand-verified in employer_aliases.csv
+PwC,PWC CONSULTING,match,hand-verified in employer_aliases.csv
+PwC,PWC GROUP,match,hand-verified in employer_aliases.csv
+PwC,PWC TAX,match,hand-verified in employer_aliases.csv
+Red Bull,RED BULL NORTH AMERICA,match,hand-verified in employer_aliases.csv
+Robinhood,ROBINHOOD MARKETS,match,hand-verified in employer_aliases.csv
+Roblox Corporation,ROBLOX,match,"exact after normalisation; 219 postings, 246 filings"
+Rocket Lab Corporation,ROCKET LAB,match,"exact after normalisation; 405 postings, 4 filings"
+Samsara Inc.,SAMSARA,match,"exact after normalisation; 189 postings, 69 filings"
+Scout Motors,SCOUT MOTORS,match,"exact after normalisation; 264 postings, 8 filings"
+"ServiceNow, Inc.",SERVICENOW,match,"exact after normalisation; 243 postings, 912 filings"
+Siemens,SIEMENS,match,"exact after normalisation; 190 postings, 20 filings"
+Snowflake Inc.,SNOWFLAKE,match,"exact after normalisation; 275 postings, 444 filings"
+"Stripe, Inc.",STRIPE,match,"exact after normalisation; 280 postings, 292 filings"
+Stryker,STRYKER,match,"exact after normalisation; 267 postings, 106 filings"
+TD Bank,TD BANK NATIONAL ASSOCIATION,match,hand-verified in employer_aliases.csv
+"Toast, Inc.",TOAST,match,"exact after normalisation; 295 postings, 27 filings"
+"Turner & Townsend, Inc.",TURNER & TOWNSEND,match,"exact after normalisation; 374 postings, 58 filings"
+"Verkada, Inc",VERKADA,match,"exact after normalisation; 252 postings, 86 filings"
+Waymo LLC,WAYMO,match,"exact after normalisation; 316 postings, 245 filings"
+"Zoox, Inc.",ZOOX,match,"exact after normalisation; 262 postings, 308 filings"
+"Zscaler, Inc.",ZSCALER,match,"exact after normalisation; 193 postings, 165 filings"
+Accenture Federal Services,ACCENTURE,not_match,hand-verified rejection in employer_aliases.csv
+Alo Yoga,ALO,not_match,hand-verified rejection in employer_aliases.csv
+Continental,CONTINENTAL CASUALTY,not_match,hand-verified rejection in employer_aliases.csv
+Guidepoint,GUIDEPOINT SECURITY,not_match,hand-verified rejection in employer_aliases.csv
+Intuitive,INTUITIVE TECHNOLOGY PARTNERS,not_match,hand-verified rejection in employer_aliases.csv
+Lucid Motors,LUCID,not_match,hand-verified rejection in employer_aliases.csv
+Lucid Motors,LUCID SOFTWARE,not_match,hand-verified rejection in employer_aliases.csv
+Oracle,ORACLE LAW FIRM,not_match,hand-verified rejection in employer_aliases.csv
+Oracle,ORACLE ROBOTICS,not_match,hand-verified rejection in employer_aliases.csv

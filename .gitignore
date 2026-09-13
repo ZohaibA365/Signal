@@ -38,6 +38,12 @@ data/
 # laptop and would have stayed at 50.7% in production.
 !storage/employer_aliases.csv
 
+# The labelled pairs the precision gate is measured against. Third time this rule
+# has swallowed something that is source code rather than data: technologies.csv
+# and employer_aliases.csv both went the same way, each discovered only when the
+# thing that needed them failed somewhere else.
+!tests/fixtures/*.csv
+
 # Airflow
 airflow.db
 airflow-webserver.pid

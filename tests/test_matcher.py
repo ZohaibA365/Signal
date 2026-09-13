@@ -391,3 +391,118 @@ def test_the_shipped_alias_file_parses_and_is_internally_consistent():
     assert accepts, "the shipped alias file should not be empty"
     pairs = {(c, k) for c, ks in accepts.items() for k in ks}
     assert not (pairs & rejects), "a pair is both accepted and rejected"
+
+
+# ---------------------------------------------------- the labelled set and its gate
+
+LABELS = ROOT / "tests" / "fixtures" / "employer_match_labels.csv"
+
+
+def labelled_pairs() -> list[dict]:
+    import csv
+    with open(LABELS, newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
+
+
+def run_with_real_aliases(monkeypatch):
+    """
+    build_mapping over the labelled companies, with the SHIPPED alias file.
+
+    Deliberately not stubbed, unlike run() above: the alias file is itself a set
+    of published claims, so it belongs inside what the precision gate covers. The
+    key universe therefore has to contain every key an alias names, or the loader
+    refuses to run - which is its own test elsewhere.
+    """
+    captured = {}
+
+    def fake_execute_values(cur, sql, rows, page_size=None):
+        if "company_employer_link" in sql:
+            captured["links"] = rows
+        elif "company_employer_key" in sql:
+            captured["mapping"] = rows
+        else:
+            captured["candidates"] = rows
+
+    rows = labelled_pairs()
+    companies = sorted({r["company_name"] for r in rows})
+    keys = {r["employer_key"] for r in rows if r["employer_key"]}
+    accepts, rejects = load_dol.load_aliases()
+    for k in accepts.values():
+        keys.update(k)
+    keys.update(k for _, k in rejects)
+
+    monkeypatch.setattr(load_dol, "execute_values", fake_execute_values)
+    load_dol.build_mapping(FakeCursor(companies, dict.fromkeys(sorted(keys), 100)))
+    return captured.get("links", []), captured.get("mapping", [])
+
+
+def test_precision_on_auto_trusted_pairs_is_perfect(monkeypatch):
+    """
+    Every pair the matcher states as fact must be one the labels call correct.
+
+    This is the gate, and it is precision rather than coverage on purpose. A false
+    positive here is a sponsorship claim on a public page, read by somebody
+    deciding where to spend an application; a false negative is a company whose
+    page says the filings were not found. Those costs are not symmetrical, so the
+    bar is 1.00 and recall is reported rather than enforced.
+    """
+    links, _ = run_with_real_aliases(monkeypatch)
+    truth = {(r["company_name"], r["employer_key"]): r["label"] for r in labelled_pairs()}
+
+    wrong = [(c, k, truth[(c, k)]) for c, k, _ in links
+             if (c, k) in truth and truth[(c, k)] != "match"]
+    assert not wrong, f"stated as fact but labelled otherwise: {wrong}"
+
+
+def test_no_rejected_pair_is_ever_stated(monkeypatch):
+    """A pair judged wrong once must never be offered as evidence again."""
+    links, _ = run_with_real_aliases(monkeypatch)
+    truth = {(r["company_name"], r["employer_key"]): r["label"] for r in labelled_pairs()}
+    linked = {(c, k) for c, k, _ in links}
+    leaked = sorted(p for p, label in truth.items()
+                    if label == "not_match" and p in linked)
+    assert not leaked, f"labelled not_match but linked anyway: {leaked}"
+
+
+def test_a_true_absence_never_acquires_a_match(monkeypatch):
+    """
+    SpaceX and Anduril file nothing, under any name. "No filings found" is an
+    answer; inventing one for them would tell a candidate who needs sponsorship to
+    spend an application on an employer that cannot provide it.
+    """
+    links, _ = run_with_real_aliases(monkeypatch)
+    absent = {r["company_name"] for r in labelled_pairs() if r["label"] == "absent"}
+    invented = sorted({c for c, _, _ in links if c in absent})
+    assert not invented, f"matched a company with no filings at all: {invented}"
+
+
+def test_the_labelled_set_covers_all_three_outcomes():
+    """
+    A gate is only as good as what it is asked about. Labels drawn only from
+    matches would pass while the matcher claimed everything.
+    """
+    labels = [r["label"] for r in labelled_pairs()]
+    assert {"match", "not_match", "absent"} <= set(labels)
+    assert len(labels) >= 50, "the labelled set has shrunk; it should only grow"
+
+
+def test_recall_is_reported_not_enforced(monkeypatch, capsys):
+    """
+    Coverage is information. It is printed so a drop is visible in the test log,
+    and not asserted, because the moment recall becomes a target the incentive is
+    to state things that are not known.
+
+    Read the number for what it is. The positive labels were drawn from pairs the
+    matcher already resolves - exact matches and decisions already in the alias
+    file - so recovering all of them is close to arithmetic, not evidence that
+    recall is high in general. Measuring that honestly would need pairs labelled
+    from outside the matcher's own output, which is what the review queue produces
+    over time.
+    """
+    links, _ = run_with_real_aliases(monkeypatch)
+    truth = {(r["company_name"], r["employer_key"]): r["label"] for r in labelled_pairs()}
+    wanted = {p for p, label in truth.items() if label == "match"}
+    found = wanted & {(c, k) for c, k, _ in links}
+    with capsys.disabled():
+        print(f"\n    labelled matches recovered: {len(found)} of {len(wanted)}")
+    assert wanted, "no positive labels to measure against"

@@ -114,6 +114,52 @@ def order(steps: list[str], fragment: str) -> int:
     raise AssertionError(f"parity.yml has no step matching {fragment!r}")
 
 
+def ignored(path: Path) -> bool:
+    """
+    Is git actually going to skip this file?
+
+    `git check-ignore` exits 0 both for an ignored path and for one rescued by a
+    negation, so the exit code alone answers a different question than it appears
+    to - a first version of this test passed for that reason. The verbose output
+    names the winning rule, and a rule beginning with "!" is a rescue.
+    """
+    import subprocess
+    r = subprocess.run(["git", "check-ignore", "-v", "--no-index", str(path)],
+                       cwd=ROOT, capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return False                      # no rule matched at all
+    rule = r.stdout.split("\t")[0].rsplit(":", 1)[-1]
+    return not rule.startswith("!")
+
+
+def test_the_ignore_check_can_actually_fail():
+    """
+    The guard below is only worth having if it detects a real exclusion, and the
+    obvious way to write it does not. Anchored on a path the repository genuinely
+    ignores.
+    """
+    assert ignored(ROOT / "review_queue.csv")
+    assert not ignored(ROOT / "storage" / "load_dol.py")
+
+
+@pytest.mark.parametrize("path", sorted(
+    list((ROOT / "tests" / "fixtures").glob("*.csv"))
+    + [ROOT / "storage" / "employer_aliases.csv"]
+    + list((ROOT / "dbt_signal" / "seeds").glob("*.csv"))
+), ids=lambda p: p.name)
+def test_committed_data_files_are_not_gitignored(path):
+    """
+    A blanket *.csv rule has now swallowed three files that are source code
+    rather than data: the technology seed, the employer alias decisions, and the
+    labelled pairs the precision gate reads. Each was discovered only when
+    whatever needed the file failed somewhere else, which is the expensive way.
+    """
+    assert not ignored(path), (
+        f"{path.relative_to(ROOT)} is gitignored, so it will not reach CI or a "
+        f"fresh checkout. Add an exception to .gitignore."
+    )
+
+
 class TestParityComparesLikeWithLike:
     """
     The parity workflow's step order is its correctness.
