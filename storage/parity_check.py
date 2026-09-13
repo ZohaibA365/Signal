@@ -39,6 +39,26 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("parity")
 
+# Checked before the models are, and reported differently.
+#
+# The comparison only means something when the three engines are looking at the
+# same rows. They are not automatically: Postgres is read live while the other two
+# are mirrors, so anything that writes to the warehouse mid-run - a pipeline, or a
+# person rebuilding the employer mapping by hand, which is what happened - leaves
+# one engine a few thousand rows behind the others.
+#
+# That produces a "the engines disagree" failure which reads exactly like a SQL
+# divergence and is nothing of the kind. Establishing first that the inputs match
+# turns a day of looking for a dialect bug into one line saying the mirror is
+# stale. The same confusion, in the other direction, is what made an earlier run
+# compare a fresh Snowflake build against a nine-hour-old Postgres view.
+SOURCES: dict[str, str] = {
+    "source rows: raw_postings": "select count(*) from raw_postings",
+    "source rows: posting_technologies": "select count(*) from posting_technologies",
+    "source rows: company_employer_link": "select count(*) from company_employer_link",
+    "source rows: dol_employer_summary": "select count(*) from dol_employer_summary",
+}
+
 # Each entry is one scalar that must match. Named for what a difference would
 # mean, not for the SQL.
 CHECKS: dict[str, str] = {
@@ -92,6 +112,11 @@ def scalar(cur, sql: str):
     return int(value) if value is not None else None
 
 
+def every_check() -> dict[str, str]:
+    """Sources first, then models. One definition, because two drifted."""
+    return {**SOURCES, **CHECKS}
+
+
 def databricks_scalars() -> dict[str, int | None] | None:
     """
     The same checks on Databricks, or None when it is not configured.
@@ -111,7 +136,7 @@ def databricks_scalars() -> dict[str, int | None] | None:
 
     db = Databricks()
     out: dict[str, int | None] = {}
-    for name, sql in CHECKS.items():
+    for name, sql in every_check().items():
         try:
             rows = db.sql(sql)
             # Every value comes back as text over REST, including counts.
@@ -135,7 +160,7 @@ def main() -> None:
     results = []
     try:
         with pg.cursor() as pc, sf.cursor() as sc:
-            for name, sql in CHECKS.items():
+            for name, sql in every_check().items():
                 try:
                     a = scalar(pc, sql)
                 except Exception as exc:                      # noqa: BLE001
@@ -177,6 +202,19 @@ def main() -> None:
 
     if third is None and not args.skip_databricks:
         log.warning("Databricks was not compared: no host or token configured.")
+
+    # A stale mirror is not a disagreement about SQL, and saying so is the whole
+    # point of checking the sources separately.
+    stale = [r for r in results if not r["match"] and r["check"] in SOURCES]
+    if stale:
+        detail = ", ".join(r["check"].removeprefix("source rows: ") for r in stale)
+        log.error("The engines are not looking at the same data: %s differ before a "
+                  "single model is compared. Re-run the mirrors; this is not a SQL "
+                  "difference.", detail)
+        if os.getenv("GITHUB_ACTIONS"):
+            print(f"::error::Mirrors are out of step ({detail}), so the engines were "
+                  f"never comparable. Re-run after mirroring.")
+        raise SystemExit(f"{len(stale)} source table(s) differ across engines")
 
     bad = [r for r in results if not r["match"]]
     if bad:
