@@ -401,3 +401,40 @@ CREATE TABLE IF NOT EXISTS hist_tech_daily (
 
     PRIMARY KEY (observed_date, tech_slug)
 );
+
+-- Which high-scoring roles have been approached, and what was drafted for them.
+--
+-- Written by the agent in agent/, which drafts outreach for postings the
+-- enrichment layer scored highly and records the result. Nothing here sends
+-- anything: 'email_sent' and 'responded' are states a person reaches by doing
+-- something in the world, and the agent is not permitted to write them - an
+-- agent that could would be able to report an email it never sent.
+--
+-- Keyed on (source, job_id) like every other per-posting table here. The drafts
+-- live in the row rather than only in the run log, because this is where you
+-- would look when deciding what to actually send.
+CREATE TABLE IF NOT EXISTS outreach_tracker (
+    source            TEXT NOT NULL,
+    job_id            TEXT NOT NULL,
+    company_name      TEXT,
+    job_title         TEXT,
+
+    -- not_contacted | email_drafted | email_sent | responded
+    status            TEXT NOT NULL DEFAULT 'not_contacted',
+
+    draft_email       TEXT,
+    draft_connection  TEXT,
+    draft_followup    TEXT,
+    -- model | template. "Who wrote this" is the first question worth asking
+    -- about a draft you are about to put your name on: the model writes it when
+    -- every factual claim verifies against the insight records, and the
+    -- deterministic template writes it when one does not.
+    draft_source      TEXT,
+
+    notes             TEXT,
+    first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (source, job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_outreach_tracker_status ON outreach_tracker (status);

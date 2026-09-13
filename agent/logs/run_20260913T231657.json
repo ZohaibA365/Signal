@@ -1,0 +1,145 @@
+{
+  "run": "20260913T231657",
+  "finished_at": "2026-09-13T23:17:12.442882+00:00",
+  "model": "claude-haiku-4-5-20251001",
+  "draft_model": "claude-haiku-4-5-20251001",
+  "dry_run": false,
+  "criteria": {
+    "min_score": 75,
+    "status": "not_contacted",
+    "limit": 1,
+    "job_id": null
+  },
+  "max_steps_per_job": 8,
+  "summary": {
+    "postings": 1,
+    "companies": 1,
+    "drafted": 1,
+    "drafted_by_model": 1,
+    "drafted_by_template": 0,
+    "rejected_calls": 0,
+    "outcomes": {
+      "email_drafted": 1
+    }
+  },
+  "jobs": [
+    {
+      "job_id": "company_board:workday:R-0000186330",
+      "company": "RBC",
+      "title": "2027 Winter - GRM, ALM Risk Data & Automation Analyst Intern (4 Months)",
+      "fit_score": 88,
+      "steps": [
+        {
+          "step": 1,
+          "tool": "check_application_status",
+          "arguments": {
+            "job_id": "company_board:workday:R-0000186330"
+          },
+          "ok": true,
+          "rejected": false,
+          "detail": "not_contacted; drafting allowed",
+          "ms": 53,
+          "at": "2026-09-13T23:17:00.739037+00:00",
+          "data": {
+            "job_id": "company_board:workday:R-0000186330",
+            "exists": true,
+            "status": "not_contacted",
+            "company": "RBC",
+            "job_title": "2027 Winter - GRM, ALM Risk Data & Automation Analyst Intern (4 Months)",
+            "fit_score": 88,
+            "eligible_to_draft": true,
+            "reason": null,
+            "updated_at": null
+          }
+        },
+        {
+          "step": 2,
+          "tool": "draft_outreach_email",
+          "arguments": {
+            "job_id": "company_board:workday:R-0000186330",
+            "company": "RBC"
+          },
+          "ok": true,
+          "rejected": false,
+          "detail": "5 insight(s), drafted by the model",
+          "ms": 7125,
+          "at": "2026-09-13T23:17:09.221646+00:00",
+          "data": {
+            "job_id": "company_board:workday:R-0000186330",
+            "company": "RBC",
+            "url": "https://zohaiba365.github.io/Signal/companies/rbc/",
+            "insight_count": 5,
+            "source": "model",
+            "verification": {
+              "email": {
+                "passed": true,
+                "checks_run": 5,
+                "failures": [],
+                "untraceable_numbers": []
+              },
+              "connection": {
+                "passed": true,
+                "checks_run": 5,
+                "failures": [],
+                "untraceable_numbers": []
+              },
+              "followup": {
+                "passed": true,
+                "checks_run": 5,
+                "failures": [],
+                "untraceable_numbers": []
+              }
+            },
+            "usage": {
+              "input": 1042,
+              "output": 380
+            }
+          }
+        },
+        {
+          "step": 3,
+          "tool": "update_tracker_status",
+          "arguments": {
+            "job_id": "company_board:workday:R-0000186330",
+            "new_status": "email_drafted",
+            "notes": "Outreach drafted for RBC GRM/ALM Risk Data & Automation Analyst Intern role; strong fit score (88)."
+          },
+          "ok": true,
+          "rejected": false,
+          "detail": "not_contacted -> email_drafted",
+          "ms": 114,
+          "at": "2026-09-13T23:17:11.099539+00:00",
+          "data": {
+            "job_id": "company_board:workday:R-0000186330",
+            "previous_status": "not_contacted",
+            "new_status": "email_drafted"
+          }
+        }
+      ],
+      "outcome": "email_drafted",
+      "drafted": true,
+      "draft_source": "model",
+      "verification": {
+        "email": {
+          "passed": true,
+          "checks_run": 5,
+          "failures": [],
+          "untraceable_numbers": []
+        },
+        "connection": {
+          "passed": true,
+          "checks_run": 5,
+          "failures": [],
+          "untraceable_numbers": []
+        },
+        "followup": {
+          "passed": true,
+          "checks_run": 5,
+          "failures": [],
+          "untraceable_numbers": []
+        }
+      },
+      "summary": "**Summary:** Outreach email, connection note, and follow-up have been drafted for the RBC GRM/ALM Risk Data & Automation Analyst Intern role and the tracker has been updated."
+    }
+  ]
+}
