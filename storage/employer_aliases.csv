@@ -1,38 +1,90 @@
 company_name,employer_key,verdict,evidence
 Accenture Federal Services,ACCENTURE,reject,AFS is a separate entity for cleared US federal work and is not the Accenture that files these
+Allegiant,ALLEGIANT AIR,accept,30 filings; DOL entity is the same company under its legal or divisional name
+Allstate,ALLSTATE INSURANCE,accept,30 filings; DOL entity is the same company under its legal or divisional name
 Alo Yoga,ALO,reject,31 filings under a single generic token; cannot be confirmed as Alo Yoga
+Ameriprise,AMERIPRISE FINANCIAL,accept,137 filings; DOL entity is the same company under its legal or divisional name
+Ancestry,ANCESTRY COM OPERATIONS,accept,82 filings; DOL entity is the same company under its legal or divisional name
 Anthropic,ANTHROPIC PBC,accept,168 filings; Anthropic PBC is the legal entity
 Anthropic,ANTHROPIC PBC D B A ANTHROPIC,accept,"9 filings; same entity, doing-business-as form"
+Aristocrat,ARISTOCRAT TECHNOLOGIES,accept,42 filings; DOL entity is the same company under its legal or divisional name
 Attentive,ATTENTIVE MOBILE,accept,Attentive Mobile Inc is the company's legal name; 51 filings
+Barclays,BARCLAYS BANK DELAWARE,accept,47 filings; DOL entity is the same company under its legal or divisional name
+Barclays,BARCLAYS CAPITAL,accept,156 filings; DOL entity is the same company under its legal or divisional name
+Barclays,BARCLAYS SERVICES,accept,970 filings; DOL entity is the same company under its legal or divisional name
+Beacon Hill,BEACON HILL SOLUTIONS GROUP,accept,132 filings; DOL entity is the same company under its legal or divisional name
+Beacon Hill,BEACON HILL STAFFING GROUP,accept,65 filings; DOL entity is the same company under its legal or divisional name
+Bloomberg,BLOOMBERG INDUSTRY GROUP,accept,27 filings; DOL entity is the same company under its legal or divisional name
+Bloomberg,BLOOMBERG L P,accept,666 filings; DOL entity is the same company under its legal or divisional name
 BMO,BMO BANK N A,accept,64 filings; BMO US banking entity
 BMO,BMO CAPITAL MARKETS,accept,14 filings; BMO entity
 BMO,BMO HARRIS BANK N A,accept,1 filing; BMO entity
+Bridgenext,BRIDGENEXT DIGITAL ENGINEERING,accept,28 filings; DOL entity is the same company under its legal or divisional name
+Brookfield,BROOKFIELD ASSET MANAGEMENT,accept,31 filings; DOL entity is the same company under its legal or divisional name
+Burns & McDonnell,BURNS & MCDONNELL ENGINEERING,accept,158 filings; DOL entity is the same company under its legal or divisional name
+Burns & McDonnell,BURNS & MCDONNELL WESTERN ENTERPRISES,accept,21 filings; DOL entity is the same company under its legal or divisional name
+Capgemini,CAPGEMINI AMERICA,accept,4143 filings; DOL entity is the same company under its legal or divisional name
 Capital One,CAPITAL ONE NATIONAL ASSOCIATION,accept,523 filings; the bank entity; same employer group
 Capital One,CAPITAL ONE SERVICES,accept,1029 filings; Capital One Services LLC is the operating entity
+Citigroup,CITIGROUP GLOBAL MARKETS,accept,208 filings; DOL entity is the same company under its legal or divisional name
+Citizens,CITIZENS FINANCIAL GROUP,accept,272 filings; DOL entity is the same company under its legal or divisional name
 Cognizant,COGNIZANT MOBILITY,accept,13 filings; Cognizant entity
 Cognizant,COGNIZANT TECHNOLOGY SOLUTIONS,accept,15274 filings; the principal Cognizant entity
 Cognizant,COGNIZANT TRIZETTO SOFTWARE GROUP,accept,42 filings; Cognizant-owned TriZetto
 Cognizant,COGNIZANT WORLDWIDE,accept,26 filings; Cognizant entity
 Commvault,COMMVAULT SYSTEMS,accept,Commvault Systems Inc is the legal name; 69 filings
+Compunnel Inc.,COMPUNNEL SOFTWARE GROUP,accept,3215 filings; DOL entity is the same company under its legal or divisional name
 Continental,CONTINENTAL AUTOMOTIVE SYSTEMS,accept,Continental AG's US automotive entity; 41 filings
 Continental,CONTINENTAL AUTONOMOUS MOBILITY,accept,Continental AG's autonomous driving entity; 20 filings
 Continental,CONTINENTAL CASUALTY,reject,"Continental Casualty is CNA's insurance entity, not Continental AG"
+Dimensional,DIMENSIONAL FUND ADVISORS,accept,47 filings; DOL entity is the same company under its legal or divisional name
+Ernst & Young,ERNST & YOUNG EY GUAM,accept,65 filings; DOL entity is the same company under its legal or divisional name
+Ernst & Young,ERNST & YOUNG U S,accept,13386 filings; DOL entity is the same company under its legal or divisional name
 Esri,ENVIRONMENTAL SYSTEMS RESEARCH INSTITUTE ESRI,accept,82 filings; Esri is the trading name of ESRI Inc
 Eurofins,EUROFINS LANCASTER LABORATORIES PROFESSIONAL SCIENTIFIC SERVICES,accept,Eurofins Lancaster Laboratories is part of the Eurofins group; 75 filings
+EVERSANA,EVERSANA LIFE SCIENCE SERVICES,accept,36 filings; DOL entity is the same company under its legal or divisional name
 Experian,EXPERIAN INFORMATION SOLUTIONS,accept,Experian Information Solutions Inc is the US entity; 133 filings
+Fidelity,FIDELITY BROKERAGE SERVICES,accept,32 filings; DOL entity is the same company under its legal or divisional name
+Fidelity,FIDELITY BROKERAGE SERVICES D B A FIDELITY INVESTMENTS,accept,74 filings; DOL entity is the same company under its legal or divisional name
+Fidelity,FIDELITY INVESTMENTS INSTITUTIONAL OPERATIONS D B A FIDELITY INVESTMENTS,accept,"32 filings; a Fidelity Investments entity, doing-business-as form"
+Fidelity,FIDELITY MANAGEMENT & RESEARCH D B A FIDELITY INVESTMENTS,accept,38 filings; DOL entity is the same company under its legal or divisional name
+Fidelity,FIDELITY TECHNOLOGY GROUP,accept,792 filings; DOL entity is the same company under its legal or divisional name
+Fidelity,FIDELITY TECHNOLOGY GROUP D B A FIDELITY INVESTMENTS,accept,2207 filings; DOL entity is the same company under its legal or divisional name
+Fidelity,FIDELITY WORKPLACE INVESTING D B A FIDELITY INVESTMENTS,accept,45 filings; DOL entity is the same company under its legal or divisional name
+Genworth,GENWORTH NORTH AMERICA,accept,28 filings; DOL entity is the same company under its legal or divisional name
+Goldman Sachs,GOLDMAN SACHS &,accept,1635 filings; DOL entity is the same company under its legal or divisional name
+Goldman Sachs,GOLDMAN SACHS BANK,accept,383 filings; DOL entity is the same company under its legal or divisional name
+Goldman Sachs,GOLDMAN SACHS SERVICES,accept,764 filings; DOL entity is the same company under its legal or divisional name
+Goldman Sachs,GOLDMAN SACHS WEALTH SERVICES L P,accept,39 filings; DOL entity is the same company under its legal or divisional name
 Guidepoint,GUIDEPOINT SECURITY,reject,GuidePoint Security is a different company from Guidepoint the expert network
+Hexaware,HEXAWARE TECHNOLOGIES,accept,880 filings; DOL entity is the same company under its legal or divisional name
+Honeywell,HONEYWELL INTERNATIONAL,accept,271 filings; DOL entity is the same company under its legal or divisional name
 Intuitive,INTUITIVE SURGICAL,accept,16 filings; same employer
 Intuitive,INTUITIVE SURGICAL OPERATIONS,accept,443 filings; Intuitive is the trading name of Intuitive Surgical
 Intuitive,INTUITIVE TECHNOLOGY PARTNERS,reject,3 filings; unrelated IT consultancy
+LexisNexis,LEXISNEXIS RISK DATA MANAGEMENT,accept,47 filings; DOL entity is the same company under its legal or divisional name
+LexisNexis,LEXISNEXIS RISK SOLUTIONS,accept,191 filings; DOL entity is the same company under its legal or divisional name
+LexisNexis,LEXISNEXIS RISK SOLUTIONS FL,accept,170 filings; DOL entity is the same company under its legal or divisional name
+LiveMindz,LIVEMINDZ SERVICES,accept,67 filings; DOL entity is the same company under its legal or divisional name
 Lucid Motors,LUCID,reject,"842 filings; a different company entirely, not Lucid Motors"
 Lucid Motors,LUCID GROUP,accept,15 filings; Lucid Group Inc is the parent of Lucid Motors
 Lucid Motors,LUCID SOFTWARE,reject,22 filings; Lucid Software makes Lucidchart
+Lumentum,LUMENTUM OPERATIONS,accept,14 filings; DOL entity is the same company under its legal or divisional name
+Mastercard,MASTERCARD INTERNATIONAL,accept,238 filings; DOL entity is the same company under its legal or divisional name
+Mastercard,MASTERCARD TECHNOLOGIES,accept,678 filings; DOL entity is the same company under its legal or divisional name
+Microchip,MICROCHIP TECHNOLOGY,accept,198 filings; DOL entity is the same company under its legal or divisional name
 Motional,MOTIONAL AD,accept,Motional AD LLC is the Hyundai-Aptiv joint venture itself; 129 filings
 NBCUniversal,NBCUNIVERSAL MEDIA,accept,NBCUniversal Media LLC is the operating entity; 102 filings
+Novartis,NOVARTIS INSTITUTES FOR BIOMEDICAL RESEARCH,accept,107 filings; DOL entity is the same company under its legal or divisional name
+Novartis,NOVARTIS PHARMACEUTICALS,accept,138 filings; DOL entity is the same company under its legal or divisional name
+Novartis,NOVARTIS SERVICES,accept,23 filings; DOL entity is the same company under its legal or divisional name
 Oracle,ORACLE AMERICA,accept,1599 filings; Oracle America Inc is the US entity
 Oracle,ORACLE FINANCIAL SERVICES SOFTWARE,accept,86 filings; majority-owned Oracle subsidiary
 Oracle,ORACLE LAW FIRM,reject,"2 filings; a law firm, not Oracle Corporation"
 Oracle,ORACLE ROBOTICS,reject,5 filings; unrelated company sharing the word
+Palantir,PALANTIR TECHNOLOGIES,accept,153 filings; DOL entity is the same company under its legal or divisional name
+Paramount,PARAMOUNT SOFTWARE SOLUTIONS,reject,"Paramount Software Solutions is an IT services firm, not Paramount the media company"
+PointClickCare,POINTCLICKCARE TECHNOLOGIES,accept,24 filings; DOL entity is the same company under its legal or divisional name
 PwC,PRICEWATERHOUSECOOPERS ADVISORY SERVICES,accept,the main PwC US advisory entity
 PwC,PWC BUSINESS ADVISORY,accept,56 filings; PwC advisory entity
 PwC,PWC CONSULTING,accept,180 filings; PwC consulting practice
@@ -40,4 +92,15 @@ PwC,PWC GROUP,accept,74 filings; PwC group entity
 PwC,PWC TAX,accept,201 filings; PwC tax practice
 Red Bull,RED BULL NORTH AMERICA,accept,13 filings; Red Bull North America Inc
 Robinhood,ROBINHOOD MARKETS,accept,Robinhood Markets Inc is the parent legal entity; 261 filings
+Rockstar,ROCKSTAR GAMES,accept,19 filings; DOL entity is the same company under its legal or divisional name
+SambaNova,SAMBANOVA SYSTEMS,accept,46 filings; DOL entity is the same company under its legal or divisional name
+Schaeffler,SCHAEFFLER GROUP,accept,48 filings; DOL entity is the same company under its legal or divisional name
+Schlumberger,SCHLUMBERGER TECHNOLOGY,accept,214 filings; DOL entity is the same company under its legal or divisional name
+Schonfeld,SCHONFELD STRATEGIC ADVISORS,accept,40 filings; DOL entity is the same company under its legal or divisional name
+Skyworks,SKYWORKS SOLUTIONS,accept,188 filings; DOL entity is the same company under its legal or divisional name
+Sutherland,SUTHERLAND DIGITAL SERVICES,accept,39 filings; DOL entity is the same company under its legal or divisional name
+Synchrony Inc,SYNCHRONY BANK,accept,110 filings; DOL entity is the same company under its legal or divisional name
 TD Bank,TD BANK NATIONAL ASSOCIATION,accept,82 filings; the US banking entity
+Teledyne,TELEDYNE TECHNOLOGIES,accept,1 filings; DOL entity is the same company under its legal or divisional name
+Transamerica,TRANSAMERICA LIFE INSURANCE,accept,52 filings; DOL entity is the same company under its legal or divisional name
+ZoomInfo,ZOOMINFO TECHNOLOGIES,accept,92 filings; DOL entity is the same company under its legal or divisional name

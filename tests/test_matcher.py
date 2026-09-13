@@ -445,6 +445,13 @@ def test_precision_on_auto_trusted_pairs_is_perfect(monkeypatch):
     deciding where to spend an application; a false negative is a company whose
     page says the filings were not found. Those costs are not symmetrical, so the
     bar is 1.00 and recall is reported rather than enforced.
+
+    What it is and is not. Most positive labels are decisions a reviewer made in
+    employer_aliases.csv, so this cannot audit that reviewer's judgement - it is a
+    regression gate. It catches a matching rule that starts stating something it
+    was told not to, a rejection that stops being honoured, and an absent employer
+    that acquires a match. Auditing the judgement itself needs labels from outside
+    the project's own decisions, and the honest place to say so is here.
     """
     links, _ = run_with_real_aliases(monkeypatch)
     truth = {(r["company_name"], r["employer_key"]): r["label"] for r in labelled_pairs()}
