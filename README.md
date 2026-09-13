@@ -55,7 +55,7 @@ Claude API (eligibility, fit, reasoning) ────────────┘
 |---|---|
 | Ingestion | Python, 7 ATS adapters, boto3 |
 | Data lake | AWS S3, Hive-style partitioning |
-| Warehouse | PostgreSQL (Docker local, Neon hosted, Snowflake third target) |
+| Warehouse | PostgreSQL (Docker local, Neon hosted), mirrored to Snowflake and Databricks for parity |
 | Transformation | dbt — 15 models, 106 nodes including tests |
 | Batch processing | PySpark over 800k visa filings |
 | Streaming | Kafka (KRaft), producer + alerting consumer |
@@ -168,6 +168,15 @@ Things that went wrong and what fixed them:
   matched 1,590 internships on Postgres and 0 on Snowflake — the same query, silently
   disagreeing. It was also matching "Internal Auditor" as an internship.
 
+- **Databricks, a type that changed underneath the SQL.** Date minus date is an
+  integer on Postgres and Snowflake and an `INTERVAL DAY` on Spark, so
+  `days_since_posted` silently changed type on the third engine and only announced
+  itself when something compared it with 60. Three more of the same shape followed:
+  `regexp_like` takes no flags argument on Spark, `'YYYY-MM'` is rejected where
+  `YYYY` means the week-based year, and no format string produces "Jun 2011" on all
+  three. Each is now a portable expression, verified identical on Postgres before
+  and after.
+
 - **352 doomed API calls.** When credit ran out, enrichment ground through 352
   identical failures logging an opaque "API error 400". It now logs the real message
   and aborts after three consecutive account errors.
@@ -194,7 +203,31 @@ cd dbt_signal && dbt build --profiles-dir .      # build all models
 cd .. && python site/build.py                    # generate the static site
 ```
 
-Run the tests with `pytest`.
+Run the tests with `pytest`. To run what CI runs, against a throwaway Postgres
+container and an environment built from `requirements-dev.txt` alone:
+
+```bash
+CLEAN=1 bash scripts/ci_rehearse.sh
+```
+
+Three engines are compared on every push that changes the SQL, because two of them
+fail in ways the third cannot see — Snowflake catches regex anchoring, Databricks
+catches type coercion, and Postgres serves the site:
+
+```bash
+python storage/load_to_snowflake.py && dbt build --target snowflake
+python storage/load_to_databricks.py && python storage/build_on_databricks.py
+python storage/parity_check.py        # 17 checks, all three engines
+```
+
+Employer matches the machine will not guess at are queued for a person:
+
+```bash
+python storage/review_matches.py --status        # what is undecided, and its cost
+python storage/review_matches.py --emit          # a worksheet with the evidence
+python storage/review_matches.py --apply review_queue.csv
+python storage/load_dol.py --rebuild-mapping-only
+```
 
 Enrichment (`python ai_layer/enrich.py --seniority intern entry --linkable --relevant`)
 needs an Anthropic key with credit. It is incremental — a posting is re-scored only
@@ -205,7 +238,9 @@ actually publish, since scoring one it cannot show buys nothing.
 
 ```
 ingestion/      ATS adapters, board discovery + ingest, aggregator, market snapshot
-storage/        S3 → warehouse loader, schema, connection helper, Parquet export
+storage/        S3 → warehouse loader, schema, connection helper, Parquet export,
+                mirrors to Snowflake and Databricks, the engine parity check,
+                retention and the employer review queue
 processing/     PySpark aggregation over DOL visa filings
 ai_layer/       taxonomy, extraction, LLM enrichment, candidate profiles
 dbt_signal/     staging → intermediate → marts, star schema, macros, tests
