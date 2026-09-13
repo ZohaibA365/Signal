@@ -92,9 +92,42 @@ def scalar(cur, sql: str):
     return int(value) if value is not None else None
 
 
+def databricks_scalars() -> dict[str, int | None] | None:
+    """
+    The same checks on Databricks, or None when it is not configured.
+
+    Reached over the REST Statement Execution API rather than a driver, because
+    Free Edition answers on no other channel - see storage/build_on_databricks.py.
+    Optional on purpose: the third engine is the newest and the least essential,
+    and a missing Databricks token must not stop Postgres and Snowflake being
+    compared.
+    """
+    if not (os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN")):
+        return None
+    try:
+        from load_to_databricks import Databricks
+    except ImportError:
+        return None
+
+    db = Databricks()
+    out: dict[str, int | None] = {}
+    for name, sql in CHECKS.items():
+        try:
+            rows = db.sql(sql)
+            # Every value comes back as text over REST, including counts.
+            out[name] = int(rows[0][0]) if rows and rows[0][0] is not None else None
+        except SystemExit as exc:
+            out[name] = None
+            log.error("  databricks failed on %r: %s", name,
+                      " ".join(str(exc).split())[:100])
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Compare model output across engines")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    ap.add_argument("--skip-databricks", action="store_true",
+                    help="compare Postgres and Snowflake only")
     args = ap.parse_args()
 
     pg = pg_connect(autocommit=True)
@@ -114,30 +147,44 @@ def main() -> None:
                 except Exception as exc:                      # noqa: BLE001
                     b = None
                     log.error("  snowflake failed on %r: %s", name, str(exc).strip()[:80])
-                results.append({"check": name, "postgres": a, "snowflake": b,
-                                "match": a == b})
+                results.append({"check": name, "postgres": a, "snowflake": b})
     finally:
         pg.close()
         sf.close()
+
+    third = None if args.skip_databricks else databricks_scalars()
+    for r in results:
+        if third is not None:
+            r["databricks"] = third.get(r["check"])
+        # A missing third engine is not a disagreement. Everything present must
+        # agree with Postgres.
+        r["match"] = all(r[e] == r["postgres"] for e in ("snowflake", "databricks")
+                         if e in r)
+
+    engines = ["postgres", "snowflake"] + (["databricks"] if third is not None else [])
 
     if args.json:
         print(json.dumps(results, indent=2))
     else:
         width = max(len(r["check"]) for r in results)
-        log.info("%-*s %14s %14s", width, "check", "postgres", "snowflake")
+        header = " ".join(f"{e:>14}" for e in engines)
+        log.info("%-*s %s", width, "check", header)
         for r in results:
-            log.info("%-*s %14s %14s  %s", width, r["check"],
-                     f"{r['postgres']:,}" if r["postgres"] is not None else "-",
-                     f"{r['snowflake']:,}" if r["snowflake"] is not None else "-",
+            cells = [f"{r[e]:,}" if r.get(e) is not None else "-" for e in engines]
+            log.info("%-*s %s  %s", width, r["check"],
+                     " ".join(f"{c:>14}" for c in cells),
                      "ok" if r["match"] else "DIFFERS")
+
+    if third is None and not args.skip_databricks:
+        log.warning("Databricks was not compared: no host or token configured.")
 
     bad = [r for r in results if not r["match"]]
     if bad:
         if os.getenv("GITHUB_ACTIONS"):
-            print(f"::error::{len(bad)} parity check(s) differ between Postgres and "
-                  f"Snowflake: {', '.join(r['check'] for r in bad)}")
+            print(f"::error::{len(bad)} parity check(s) differ across "
+                  f"{len(engines)} engines: {', '.join(r['check'] for r in bad)}")
         raise SystemExit(f"{len(bad)} of {len(results)} checks differ")
-    log.info("All %s checks agree.", len(results))
+    log.info("All %s checks agree across %s engines.", len(results), len(engines))
 
 
 if __name__ == "__main__":

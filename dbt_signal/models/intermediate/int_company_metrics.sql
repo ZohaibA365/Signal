@@ -67,6 +67,9 @@ select
         / greatest(extract(day from (latest_posting_at - first_posting_at)) / 7.0, 1)
     , 2) as roles_per_week,
 
-    (current_date - latest_posting_at::date) as days_since_last_posting
+    -- Cast for the same reason stg_jobs casts: date minus date is an integer on
+    -- Postgres and Snowflake and an INTERVAL on Spark, and the difference is
+    -- silent until something compares the result with a number.
+    cast((current_date - latest_posting_at::date) as int) as days_since_last_posting
 
 from metrics

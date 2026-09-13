@@ -50,3 +50,28 @@ signal:
       schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'PUBLIC') }}"
       threads: 8
       client_session_keep_alive: false
+
+    # Databricks as a THIRD target, and for a different reason from Snowflake.
+    #
+    # Snowflake catches regex anchoring. Databricks catches type coercion:
+    # subtracting two dates yields an INTERVAL on Spark rather than an integer, so
+    # days_since_posted silently changes type and a comparison against 60
+    # misbehaves - compiles fine, wrong answer, which is the same shape as the
+    # regex bug and a class Snowflake cannot see, because Spark's rlike is
+    # unanchored exactly like Postgres.
+    #
+    # Needs DATABRICKS_HOST, DATABRICKS_TOKEN and the SQL warehouse's http_path.
+    # Source tables are mirrored by storage/load_to_databricks.py.
+    # Build with:  dbt build --target databricks
+    databricks:
+      type: databricks
+      # The host without its scheme, which is how this adapter wants it while
+      # DATABRICKS_HOST carries https:// for every other caller.
+      host: "{{ env_var('DATABRICKS_HOSTNAME') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DATABRICKS_CATALOG', 'workspace') }}"
+      schema: "{{ env_var('DATABRICKS_SCHEMA', 'signal') }}"
+      # One. Free Edition allows five concurrent tasks on one 2X-Small warehouse,
+      # and a parity build is not in a hurry.
+      threads: 1

@@ -59,7 +59,14 @@ cleaned as (
         location_state,
         split_part(location, ',', 1)            as location_city,
         posted_date,
-        (current_date - posted_date::date)      as days_since_posted,
+        -- cast(... as int) is not decoration. Postgres and Snowflake return an
+        -- integer from date minus date; Spark returns INTERVAL DAY, so the same
+        -- expression compiles on all three and means two different things. The
+        -- cast makes every engine answer with the same number, and it is the
+        -- reason is_stale below can compare with 60 at all - on Spark the
+        -- uncast form fails with "the left and right operands have incompatible
+        -- types (INTERVAL DAY and INT)".
+        cast((current_date - posted_date::date) as int) as days_since_posted,
 
         salary_min,
         salary_max,
@@ -85,26 +92,26 @@ cleaned as (
             -- so it never appeared in a search for internships - on a site
             -- whose main use is finding them. Ordered before senior so that
             -- "Senior Design Student" reads as a student role.
-            when regexp_like(job_title,
+            when regexp_like(lower(job_title),
                  '^(.*[^a-z])?(intern|interns|internship|interning|co.?op|'
               || 'new.grad|new.graduate|university.grad|campus|'
-              || 'student|students|placement|trainee|apprentice)([^a-z].*)?$',
-                 'i') then 'intern'
+              || 'student|students|placement|trainee|apprentice)([^a-z].*)?$'
+                 ) then 'intern'
             -- Canadian employers frequently name the work term instead of
             -- using the word. RBC posts "2027 CAE, Winter Audit Planning &
             -- Reporting Analyst (4 months)" - a Winter 2027 co-op whose title
             -- contains neither "intern" nor "co-op". A season with a year, or
             -- an explicit month count, is the tell.
-            when regexp_like(job_title,
+            when regexp_like(lower(job_title),
                  '.*((winter|summer|fall|spring)[^a-z0-9]*20[0-9][0-9]|'
               || '20[0-9][0-9][^a-z0-9]*(winter|summer|fall|spring)|'
-              || '[(][0-9]{1,2}[ -]*months?[)]).*', 'i') then 'intern'
-            when regexp_like(job_title, '^(.*[^a-z])?(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)([^a-z].*)?$', 'i') then 'senior'
-            when regexp_like(job_title, '^(.*[^a-z])?(new grad|graduate|entry.level|junior|jr|associate|apprentice)([^a-z].*)?$', 'i') then 'entry'
+              || '[(][0-9]{1,2}[ -]*months?[)]).*') then 'intern'
+            when regexp_like(lower(job_title), '^(.*[^a-z])?(senior|sr|staff|principal|lead|distinguished|manager|director|head|vp|chief|architect|expert)([^a-z].*)?$') then 'senior'
+            when regexp_like(lower(job_title), '^(.*[^a-z])?(new grad|graduate|entry.level|junior|jr|associate|apprentice)([^a-z].*)?$') then 'entry'
             else 'mid'
         end as seniority,
 
-        regexp_like(job_title, '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$', 'i') as is_internship,
+        regexp_like(lower(job_title), '^(.*[^a-z])?(intern|interns|internship|co-?op)([^a-z].*)?$') as is_internship,
 
         -- Evaluated at load time by storage/sponsorship_text.py and stored, not
         -- recomputed here. Carried through so description_raw does not have to be.
@@ -112,7 +119,7 @@ cleaned as (
         source.offers_sponsorship,
 
         -- Adzuna keeps postings live long after they are realistically open.
-        (current_date - posted_date::date) > 60  as is_stale
+        cast((current_date - posted_date::date) as int) > 60  as is_stale
 
     from source
     left join {{ source('signal', 'company_identity') }} ci

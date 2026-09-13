@@ -134,12 +134,38 @@ class TestParityComparesLikeWithLike:
         assert order(steps, "sponsorship verdicts") < \
                order(steps, "Rebuild the models on Postgres")
 
+    def test_databricks_is_built_before_the_comparison(self, steps):
+        """The third engine is only compared if it was rebuilt from this commit."""
+        assert order(steps, "Mirror the source tables to Databricks") < \
+               order(steps, "Build every model on Databricks") < \
+               order(steps, "Compare the engines")
+
+    def test_the_third_engine_is_allowed_to_fail(self, steps):
+        """
+        Postgres and Snowflake are the established pair. A Databricks outage must
+        not take the comparison with it - the check reports a missing engine rather
+        than claiming three agreed.
+        """
+        spec = yaml.safe_load((ROOT / ".github/workflows/parity.yml").read_text())
+        by_name = {s.get("name"): s for s in spec["jobs"]["parity"]["steps"]}
+        for name in ("Mirror the source tables to Databricks",
+                     "Build every model on Databricks"):
+            assert by_name[name].get("continue-on-error") is True, name
+
+    def test_databricks_is_compiled_with_full_refresh(self, steps):
+        """
+        An incremental model compiled the usual way selects from itself, and on
+        Databricks the table is being created by that same statement.
+        """
+        spec = yaml.safe_load((ROOT / ".github/workflows/parity.yml").read_text())
+        by_name = {s.get("name"): s for s in spec["jobs"]["parity"]["steps"]}
+        assert "--full-refresh" in by_name["Build every model on Databricks"]["run"]
+
     def test_the_comparison_is_last(self, steps):
-        assert order(steps, "Compare the engines") == max(
-            order(steps, "Compare the engines"),
-            order(steps, "Build every model on Snowflake"),
-            order(steps, "Mirror the source tables"),
-        )
+        last = max(order(steps, s) for s in (
+            "Compare the engines", "Build every model on Snowflake",
+            "Build every model on Databricks", "Rebuild the models on Postgres"))
+        assert order(steps, "Compare the engines") == last
 
     def test_it_shares_the_pipeline_lock(self, steps):
         """Two dbt builds dropping the same tables at once fail uselessly."""

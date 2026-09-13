@@ -20,7 +20,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -32,6 +31,7 @@ from snowflake.connector.pandas_tools import write_pandas
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import connect as pg_connect  # noqa: E402
+from mirror_tables import TABLES, serialise_complex  # noqa: E402
 from snowflake_db import connect, describe  # noqa: E402
 
 load_dotenv()
@@ -39,23 +39,6 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("load_to_snowflake")
 
-# The source tables every dbt model reads from. Models are rebuilt by dbt.
-TABLES = [
-    "raw_postings",
-    "posting_technologies",
-    "job_enrichment",
-    "market_snapshots",
-    "market_snapshot_companies",
-    "market_snapshot_salary",
-    "dol_employer_summary",
-    "company_employer_key",
-    "company_employer_link",
-    # stg_jobs joins this to canonicalise company names, so a Snowflake build
-    # without it fails three source tests and skips 65 downstream models. It was
-    # missing because the list is hand-maintained; tests/test_snowflake_mirror.py
-    # now asserts the list covers every table dbt declares as a source.
-    "company_identity",
-]
 
 
 def snowflake_conn():
@@ -69,19 +52,6 @@ def snowflake_conn():
     the one most likely to leak.
     """
     return connect()
-
-
-def serialise_complex(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Postgres arrays and JSONB have no pandas dtype write_pandas accepts, so
-    they become JSON strings. Every dbt model only selects these columns, so
-    the change is invisible downstream.
-    """
-    for col in df.columns:
-        sample = df[col].dropna().head(1)
-        if len(sample) and isinstance(sample.iloc[0], (list, dict)):
-            df[col] = df[col].map(lambda v: json.dumps(v) if v is not None else None)
-    return df
 
 
 def main() -> None:

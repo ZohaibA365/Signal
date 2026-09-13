@@ -62,6 +62,11 @@ jobs:
       # leak, and ACCOUNTADMIN can drop the account's billing configuration.
       SNOWFLAKE_ROLE: SIGNAL_LOADER
       SNOWFLAKE_PRIVATE_KEY_PATH: ${{ github.workspace }}/.snowflake_key.p8
+      # The third engine. Reached over the REST Statement Execution API, so it
+      # needs no driver and no extra dependency - see storage/build_on_databricks.py
+      # for why the dbt adapter cannot be used here.
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
       DO_NOT_TRACK: "1"
 
     steps:
@@ -162,6 +167,36 @@ jobs:
             echo "::error title=Snowflake build failed::${DETAIL:-see summary}"
             exit 1
           fi
+
+      # The third engine, and it fails differently from the second, which is the
+      # only reason to have it. Snowflake catches regex anchoring. Databricks
+      # catches type coercion: date minus date is an integer on Postgres and
+      # Snowflake and an INTERVAL on Spark, so the same expression compiles on all
+      # three and means two different things.
+      #
+      # Allowed to fail. Postgres and Snowflake are the established pair; the
+      # comparison below still runs and still covers them, and it reports what is
+      # missing rather than pretending three engines agreed.
+      - name: Mirror the source tables to Databricks
+        id: db_mirror
+        continue-on-error: true
+        timeout-minutes: 20
+        run: >-
+          bash scripts/run_step.sh "Mirror to Databricks"
+          python storage/load_to_databricks.py
+
+      # --full-refresh, because an incremental model compiled the usual way selects
+      # from itself to find its high water mark, and here the table is being
+      # created by that very statement.
+      - name: Build every model on Databricks
+        id: db_build
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          (cd dbt_signal && dbt compile --profiles-dir . --no-version-check \
+             --target prod --full-refresh)
+          bash scripts/run_step.sh "Databricks build" python storage/build_on_databricks.py
 
       # The actual deliverable. A difference here means identical SQL produced
       # different answers, which is the failure mode that does not announce itself.
