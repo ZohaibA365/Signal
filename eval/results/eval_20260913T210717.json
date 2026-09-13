@@ -1,0 +1,232 @@
+{
+  "run": "20260913T210717",
+  "finished_at": "2026-09-13T21:07:54.509471+00:00",
+  "model": "claude-haiku-4-5-20251001",
+  "profile": "student",
+  "dry_run": false,
+  "cost_usd": 0.017811,
+  "git_commit": "0104a85",
+  "prompt_sha256": "b0bad4537ea7a56d",
+  "golden_set": "eval/golden_set.json",
+  "summary": {
+    "examples": 5,
+    "sponsorship_signal_correct": 5,
+    "sponsorship_signal_accuracy_pct": 100.0,
+    "eligibility_correct": 3,
+    "eligibility_accuracy_pct": 60.0,
+    "fit_score_passed": 4,
+    "fit_score_pass_rate_pct": 80.0,
+    "fit_score_mean_absolute_error": 7.0,
+    "fit_score_tolerance": 10,
+    "failed_job_ids": [
+      "company_board:ashby:082ec9ee-2e23-49e1-a59f-1ca2e8347f44",
+      "adzuna:5881970604",
+      "company_board:oraclecloud:344644"
+    ],
+    "all_passed": false
+  },
+  "examples": [
+    {
+      "job_id": "company_board:ashby:b2af8217-c919-4909-8451-0ccb89d91af8",
+      "company": "Clera",
+      "title": "Scraping Engineer",
+      "notes": "PLACEHOLDER LABEL. The text says 'Visa sponsorship is not available', so the signal is no_sponsorship rather than unclear. A US role with no sponsorship is blocked for this candidate whatever else it offers, and the prompt says a blocked posting scores below 10 regardless of fit - which is the rule this example exists to check. It would otherwise be a near match: SQL, pipelines, data quality.",
+      "sponsorship_signal": {
+        "expected": "no_sponsorship",
+        "actual": "no_sponsorship",
+        "pass": true
+      },
+      "eligibility": {
+        "expected": "blocked",
+        "actual": "blocked",
+        "pass": true
+      },
+      "fit_score": {
+        "expected": 5,
+        "actual": 5,
+        "abs_error": 0,
+        "pass": true,
+        "tolerance": 10
+      },
+      "passed_all": true,
+      "reasoning": {
+        "eligibility_reason": "The posting explicitly states 'Visa sponsorship is not available,' and the candidate is a Canadian citizen without US work authorization, making them ineligible for this US role.",
+        "visa_reasoning": "The posting explicitly states that visa sponsorship is not available, which blocks the candidate who would need J-1 sponsorship.",
+        "fit_reasoning": "Although the role involves data pipeline work and the candidate has relevant skills (Python, SQL, Git, data validation, dashboards), the explicit lack of visa sponsorship is a hard blocker, and the mid-level seniority and TypeScript/Node.js focus (not Python) further reduce fit."
+      }
+    },
+    {
+      "job_id": "company_board:ashby:082ec9ee-2e23-49e1-a59f-1ca2e8347f44",
+      "company": "Clera",
+      "title": "Founding Engineer",
+      "notes": "PLACEHOLDER LABEL. The text says 'Visa sponsorship is available', so the signal is sponsors and eligibility is eligible. The interesting part is the score: sponsorship is no reason to rate it highly. It asks for 5+ years and a founding-engineer track record, so it is a poor use of a student's application time. This example catches a prompt that conflates 'can apply' with 'worth applying'.",
+      "sponsorship_signal": {
+        "expected": "sponsors",
+        "actual": "sponsors",
+        "pass": true
+      },
+      "eligibility": {
+        "expected": "eligible",
+        "actual": "blocked",
+        "pass": false
+      },
+      "fit_score": {
+        "expected": 15,
+        "actual": 5,
+        "abs_error": 10,
+        "pass": true,
+        "tolerance": 10
+      },
+      "passed_all": false,
+      "reasoning": {
+        "eligibility_reason": "This is a founding engineer role requiring 5+ years of production experience; the candidate is a student intern graduating in 2028 with no professional work history, making them ineligible regardless of visa sponsorship availability.",
+        "visa_reasoning": "The posting explicitly states 'Visa sponsorship is available,' indicating openness to supporting non-US-authorized candidates.",
+        "fit_reasoning": "Although the role involves data infrastructure, LLMs, and distributed systems—areas matching the candidate's interests—the 5+ years experience requirement, founding-stage seniority, and full-stack scope are far beyond an internship level, and the Winter 2027 term does not align with a permanent hiring role."
+      }
+    },
+    {
+      "job_id": "company_board:smartrecruiters:744000148229219",
+      "company": "Bosch Group",
+      "title": "Supply Chain Automation Intern",
+      "notes": "PLACEHOLDER LABEL. A CANADIAN posting, and the candidate is a Canadian citizen, so work authorisation is simply not a question: eligibility must be eligible and must never be blocked for needing sponsorship. This is the single most important rule in the prompt and the one most likely to break when it is edited. The text never mentions sponsorship, so the signal is unclear. An internship in the right country, but supply-chain automation rather than data work, hence a middling score.",
+      "sponsorship_signal": {
+        "expected": "unclear",
+        "actual": "unclear",
+        "pass": true
+      },
+      "eligibility": {
+        "expected": "eligible",
+        "actual": "eligible",
+        "pass": true
+      },
+      "fit_score": {
+        "expected": 45,
+        "actual": 35,
+        "abs_error": 10,
+        "pass": true,
+        "tolerance": 10
+      },
+      "passed_all": true,
+      "reasoning": {
+        "eligibility_reason": "This is a Canadian posting and the candidate is a Canadian citizen with unrestricted work authorization in Canada.",
+        "visa_reasoning": "The posting does not address work authorization, which is irrelevant for a Canadian citizen applicant.",
+        "fit_reasoning": "Supply chain automation is tangential to the candidate's data engineering focus; the role emphasizes RPA, Power Automate, and SAP over the SQL, dbt, and pipeline work where they excel, and the posting does not specify the internship term, creating uncertainty about Winter 2027 alignment."
+      }
+    },
+    {
+      "job_id": "adzuna:5881970604",
+      "company": "Lyft",
+      "title": "Data Analyst Intern (Summer 2027)",
+      "notes": "PLACEHOLDER LABEL. The aggregator truncates descriptions at 500 characters, so the work-authorisation boilerplate that would normally sit at the end is missing entirely - this example exists to check the prompt keeps saying 'unclear' instead of inventing a requirement it cannot see. Good domain match (data, analytics, internship) but the term is Summer 2027 and the candidate needs Winter 2027, which should hold the score down.",
+      "sponsorship_signal": {
+        "expected": "unclear",
+        "actual": "unclear",
+        "pass": true
+      },
+      "eligibility": {
+        "expected": "unclear",
+        "actual": "unclear",
+        "pass": true
+      },
+      "fit_score": {
+        "expected": 50,
+        "actual": 35,
+        "abs_error": 15,
+        "pass": false,
+        "tolerance": 10
+      },
+      "passed_all": false,
+      "reasoning": {
+        "eligibility_reason": "This is a US posting with no explicit sponsorship statement in the truncated text, and Lyft's actual policies are not universally documented as blocking J-1 sponsorship, so the decision depends on full posting details not visible here.",
+        "visa_reasoning": "The truncated posting does not state whether Lyft offers visa sponsorship for interns; this requires checking the full posting or Lyft's standard practices.",
+        "fit_reasoning": "Summer 2027 is the wrong term (candidate needs Winter 2027); the role is data analyst rather than data engineer; and US sponsorship uncertainty creates application friction."
+      }
+    },
+    {
+      "job_id": "company_board:oraclecloud:344644",
+      "company": "Oracle",
+      "title": "Principal Core Infrastructure Engineer",
+      "notes": "PLACEHOLDER LABEL. Silent on sponsorship, so unclear on both counts - Oracle does sponsor, but the text does not say so and the signal reports only the text. Principal level, so it should score near zero for a student even though the technology is a good match. The floor case: if this scores highly, seniority handling has broken.",
+      "sponsorship_signal": {
+        "expected": "unclear",
+        "actual": "unclear",
+        "pass": true
+      },
+      "eligibility": {
+        "expected": "unclear",
+        "actual": "blocked",
+        "pass": false
+      },
+      "fit_score": {
+        "expected": 5,
+        "actual": 5,
+        "abs_error": 0,
+        "pass": true,
+        "tolerance": 10
+      },
+      "passed_all": false,
+      "reasoning": {
+        "eligibility_reason": "This is a Principal (senior staff) role at Oracle, a major US defence contractor with strict citizenship and security clearance requirements that are not stated in the truncated text but are well-established for infrastructure engineering positions.",
+        "visa_reasoning": "The truncated posting does not mention work authorisation, but Oracle defence/infrastructure roles typically require US citizenship or active clearance with no J-1 sponsorship.",
+        "fit_reasoning": "A Principal-level infrastructure role is far beyond intern seniority; the candidate is seeking Winter 2027 internships for students, and this is a senior permanent position."
+      }
+    }
+  ],
+  "compared_to": "eval/results/eval_20260913T210402.json",
+  "comparison": {
+    "changes": [
+      {
+        "job_id": "adzuna:5881970604",
+        "field": "fit_score",
+        "status": "regression",
+        "was": 50,
+        "now": 35,
+        "expected": 50
+      },
+      {
+        "job_id": "company_board:ashby:082ec9ee-2e23-49e1-a59f-1ca2e8347f44",
+        "field": "eligibility",
+        "status": "regression",
+        "was": "eligible",
+        "now": "blocked",
+        "expected": "eligible"
+      },
+      {
+        "job_id": "company_board:oraclecloud:344644",
+        "field": "eligibility",
+        "status": "regression",
+        "was": "unclear",
+        "now": "blocked",
+        "expected": "unclear"
+      }
+    ],
+    "regressions": [
+      {
+        "job_id": "adzuna:5881970604",
+        "field": "fit_score",
+        "status": "regression",
+        "was": 50,
+        "now": 35,
+        "expected": 50
+      },
+      {
+        "job_id": "company_board:ashby:082ec9ee-2e23-49e1-a59f-1ca2e8347f44",
+        "field": "eligibility",
+        "status": "regression",
+        "was": "eligible",
+        "now": "blocked",
+        "expected": "eligible"
+      },
+      {
+        "job_id": "company_board:oraclecloud:344644",
+        "field": "eligibility",
+        "status": "regression",
+        "was": "unclear",
+        "now": "blocked",
+        "expected": "unclear"
+      }
+    ],
+    "improvements": [],
+    "compared": 5
+  }
+}

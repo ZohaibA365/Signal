@@ -22,20 +22,17 @@ name: Engine parity
 # rather than an outage.
 
 on:
-  # On a push that changes the SQL or the mirror, because those are the only
-  # changes that can break engine parity - and waiting a week to find out, or for
-  # somebody to remember to click, is how a divergence reached the published site
-  # twice. Paths are narrow on purpose: every run wakes a warehouse, which is the
-  # only expensive mistake available on Snowflake.
-  push:
-    branches: [main]
-    paths:
-      - "dbt_signal/**"
-      - "storage/load_to_snowflake.py"
-      - "storage/parity_check.py"
-      - "storage/sponsorship_text.py"
-      - "storage/schema.sql"
-      - ".github/workflows/parity.yml"
+  # Deliberately NOT on push, and the reason is a bill rather than a preference.
+  #
+  # Each run reads every source table out of Neon twice, once per mirror - about
+  # 300,000 rows. Running that on every SQL push exhausted the free tier's data
+  # transfer allowance in a single day, and Neon then refused connections
+  # outright: "Your project has exceeded the data transfer quota". That takes the
+  # site and the daily pipeline down with it, which is a far worse outcome than
+  # learning about a dialect difference a few days late.
+  #
+  # Weekly, plus a button. If a change is risky enough to want checked now, that
+  # is what workflow_dispatch is for.
   schedule:
     - cron: "0 6 * * 1"          # Mondays, free-tier cron runs hours late anyway
   workflow_dispatch:

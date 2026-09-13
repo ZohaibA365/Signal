@@ -76,7 +76,7 @@ if [ -n "${CLEAN:-}" ]; then
     fi
     "$CIVENV/bin/python" -m pytest -q || fail "tests in a CI-equivalent environment"
     "$CIVENV/bin/ruff" check ingestion storage ai_layer outreach streaming quality \
-        processing analytics tests scripts || fail "lint in a CI-equivalent environment"
+        processing analytics tests scripts eval || fail "lint in a CI-equivalent environment"
     echo "==> tests and lint pass with only what CI installs"
 fi
 

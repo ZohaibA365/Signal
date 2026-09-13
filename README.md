@@ -210,7 +210,7 @@ container and an environment built from `requirements-dev.txt` alone:
 CLEAN=1 bash scripts/ci_rehearse.sh
 ```
 
-Three engines are compared on every push that changes the SQL, because two of them
+Three engines are compared weekly, and on demand, because two of them
 fail in ways the third cannot see — Snowflake catches regex anchoring, Databricks
 catches type coercion, and Postgres serves the site:
 
