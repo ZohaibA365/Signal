@@ -550,8 +550,20 @@ def build(skip_pages: bool = False) -> None:
     # in the sitemap list below. Nothing else needs changing - the template and its
     # data are untouched.
 
+    # ---- the outreach agent ----------------------------------------------
+    #
+    # A page ABOUT the agent, not the agent itself. It is static like everything
+    # else here: the tool drafts messages in one person's name, writes to their
+    # tracker and spends their API budget, so nothing on this page is operable.
+    render("agent.html", DIST / "agent" / "index.html",
+           nav="agent", rel="../", canonical="/agent/",
+           page_title="The outreach agent - how it is built | Signal",
+           page_description=("An agent that drafts outreach from this dataset and "
+                             "cannot send it: the safety rails, and the check that "
+                             "lets a model write prose without inventing figures."))
+
     # ---- sitemap / robots -------------------------------------------------
-    urls = ["/", "/market/", "/companies/", "/tech/"]
+    urls = ["/", "/market/", "/companies/", "/tech/", "/agent/"]
     urls += [f"/companies/{c['slug']}/" for c in companies]
     urls += [f"/tech/{t['tech_slug']}/" for t in techs]
     today = datetime.now(UTC).date()

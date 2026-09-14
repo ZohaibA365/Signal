@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block body %}<div class="wrap page">
+
+<h1>The outreach agent</h1>
+<p class="sub">
+  An agent that reads this dataset, writes outreach for the roles worth applying to,
+  and cannot send any of it. This page is about how it is built — the rails that keep
+  a language model from doing damage, and the check that lets it write prose without
+  giving up the guarantee every other number on this site is held to.
+</p>
+
+<div class="note">
+  <b>Nothing here is interactive, and that is deliberate.</b> The agent drafts messages
+  in one person's name, writes to their application tracker and spends their API
+  budget. A public button doing that would be a liability, not a feature.
+</div>
+
+
+<h2>What it does</h2>
+<p>
+  For each posting scored above a threshold: look up whether it has been approached,
+  draft three messages if not, record the outcome. Three tool calls, decided by the
+  model, permitted or refused by code. The one status it can write is
+  <span class="num">email_drafted</span>.
+</p>
+
+<div class="code"><b>check_application_status</b>(job_id)
+  → status, company, fit_score, <b>eligible_to_draft</b>, reason
+
+<b>draft_outreach_email</b>(job_id, company)
+  → three variants, and the verification verdict on each
+
+<b>update_tracker_status</b>(job_id, new_status, notes)
+  → the transition, if the agent is allowed to make it
+
+<s>send_email</s>  <i>deliberately absent</i></div>
+
+<p class="note">
+  <b>company</b> is an argument the model must supply and the code then checks against
+  the database. It exists to be checked. A model that produces a company from anywhere
+  other than the previous tool result is caught by exactly that mismatch.
+</p>
+
+
+<h2>The rails</h2>
+<p>
+  Each is enforced in code. None depends on the model following instructions, because
+  the working assumption is that it might not.
+</p>
+
+<div class="scroll">
+  <table>
+    <thead><tr><th>Rail</th><th>What it stops</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Checked twice</strong></td>
+        <td>Whether a posting may be drafted for is computed in the status tool and
+            checked again, independently, inside the draft tool. Enforcing it in one
+            place would make it advice: the model could skip the check to get past it.</td>
+      </tr>
+      <tr>
+        <td><strong>Never trust a model value</strong></td>
+        <td>Anything that should have come from the database is compared against it.
+            A company the model invented is rejected, not quietly corrected. A posting
+            id that exists nowhere gets no record created for it.</td>
+      </tr>
+      <tr>
+        <td><strong>One legal transition</strong></td>
+        <td>Only <span class="num">not_contacted → email_drafted</span>. "Sent" and
+            "responded" describe things a person did in the world; an agent able to
+            write them could report an email it never sent, and the tracker would
+            become a record of fiction.</td>
+      </tr>
+      <tr>
+        <td><strong>A status must be earned</strong></td>
+        <td>Recording a posting as drafted is refused unless a draft exists. This rail
+            was written because the first run marked one as drafted after its draft
+            call had been rejected.</td>
+      </tr>
+      <tr>
+        <td><strong>Eight calls per posting</strong></td>
+        <td>Per posting, not per run — the expected path is three, so a cap across a
+            batch would stop it two postings in. Hitting the cap is recorded as an
+            outcome, not an error: it is information about the model.</td>
+      </tr>
+      <tr>
+        <td><strong>No fatal failures</strong></td>
+        <td>A tool never raises into the loop. Bad arguments, a missing posting, a
+            database error and a model failure all become a recorded result and the
+            run continues. One bad posting must not take a batch with it.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+
+<h2>Letting a model write, without letting it invent</h2>
+<p>
+  Every message used to be assembled deterministically from records that came out of
+  SQL, so by construction it could not contain a figure the warehouse cannot reproduce.
+  That reads a little mechanically. A model writes better sentences — and would throw
+  that guarantee away, unless something checks.
+</p>
+<p>
+  So the model drafts from the records, and then the draft is proved against them. Every
+  number must trace to an observation, the link must be exact, the company must be named,
+  the channel budgets must hold, and the playbook's prohibitions are enforced. A draft
+  that fails is discarded, the deterministic version is used instead, and the rejected
+  text is kept — because "the model fabricated something" is not actionable, and the
+  sentence it fabricated is.
+</p>
+
+<div class="pair">
+  <div>
+    <h4>Accepted</h4>
+    <p>Every figure appears in an observation. A correct rounding counts: an
+       observation reading <span class="num">12.1x</span> permits
+       <span class="num">12x</span>, because the reader is not misled.</p>
+  </div>
+  <div>
+    <h4>Rejected</h4>
+    <p>A figure that appears nowhere. <span class="num">13x</span> against the same
+       observation is an invention, not a rounding, and the draft is thrown away.</p>
+  </div>
+</div>
+
+<div class="code"><s>observation:</s> they mention Tableau in 24% of their postings,
+              about <b>12.1x</b> the rate across the companies I track
+
+<s>model wrote:</s>  "...emphasizes Tableau <b>12x</b> more than peers"   → accepted
+<s>model wrote:</s>  "...grew headcount <i>47%</i> this year"             → <i>rejected</i>
+<s>model wrote:</s>  "see <i>https://tdbank.com/careers</i>"              → <i>rejected</i>
+<s>model wrote:</s>  "<i>I interned at</i> TD Bank last summer"           → <i>rejected</i></div>
+
+<p class="note warn">
+  <b>What this does not prove.</b> It proves every number in the text appears in the
+  source records. It cannot prove the sentence around the number is a fair reading of
+  it — "hiring has collapsed to 12 roles" and "hiring is up to 12 roles" both pass.
+  Numeric grounding is necessary, not sufficient.
+</p>
+
+
+<h2>What a run leaves behind</h2>
+<p>
+  Every tool call is recorded with its arguments, result, duration and outcome,
+  including the rejected ones, which are the interesting ones. A run can be
+  reconstructed exactly: what was attempted, what was refused, and which drafts came
+  from the model rather than the template.
+</p>
+
+<div class="code">check_application_status   ok        not_contacted; drafting allowed
+draft_outreach_email      ok        6 insight(s), drafted by the <b>model</b>
+update_tracker_status     ok        not_contacted → email_drafted
+
+<s>and on a second pass over the same posting:</s>
+check_application_status   ok        email_drafted; <i>drafting blocked</i></div>
+
+
+<h2>Where the model is not used</h2>
+<p>
+  Choosing among three tools and passing an identifier through is the cheapest thing a
+  model can be asked to do, so the orchestration runs on the small one. The judgement
+  that actually needs a capable model is elsewhere on this site: reading a posting to
+  decide whether a candidate could legally hold the role.
+</p>
+<p>
+  And the honest note, since it is the first thing worth asking: the orchestration does
+  not need a model at all. Check, draft, record is a loop. What the model earns its
+  place for is the prose — which is also the only part that had to be proved before it
+  could be trusted.
+</p>
+
+</div>
+{% endblock %}
