@@ -93,7 +93,40 @@ def sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
-async def run_stream(posting: str, scenario: str | None, client_ip: str):
+# What a visitor may tell us about themselves. Short, because these land inside a
+# message somebody may send: a long free-text field here is a way to write most of
+# somebody else's email through this service.
+SENDER_FIELDS = {"name": 60, "program": 80, "school": 80, "term": 40, "role": 60}
+
+
+def clean_sender(raw: dict | None) -> dict | None:
+    """
+    The visitor's own details, trimmed and bounded, or None for the default.
+
+    Stripped of newlines and truncated per field. Everything here is interpolated
+    into a draft, and the verifier checks the draft's FIGURES rather than its
+    prose, so the length limits are the control on what can be injected through it.
+    """
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for field, cap in SENDER_FIELDS.items():
+        value = raw.get(field)
+        if isinstance(value, str) and value.strip():
+            out[field] = " ".join(value.split())[:cap]
+    if not out:
+        return None
+    # The templates read these five; missing ones render as empty rather than
+    # breaking, which is how the existing profile behaves too.
+    out.setdefault("months", 4)
+    # Marks this as somebody else's message. compose.py uses it to stop saying
+    # "a pipeline I built" in the name of a person who did not build it.
+    out["_borrowed"] = True
+    return out
+
+
+async def run_stream(posting: str, scenario: str | None, client_ip: str,
+                     sender: dict | None = None):
     """
     Drive one run, yielding events as they happen.
 
@@ -144,7 +177,7 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str):
 
                 import anthropic
                 api = anthropic.Anthropic(timeout=30.0, max_retries=1)
-                context = DraftingContext(cur, [job["company"]])
+                context = DraftingContext(cur, [job["company"]], sender)
                 record = agent_mod.process_job(
                     cur, job, context, api, MODEL, DRAFT_MODEL,
                     agent_mod.MAX_STEPS_PER_JOB, on_event=emit)
@@ -220,6 +253,7 @@ async def run(request: Request):
         pass
     posting = (body.get("posting") or "").strip()[:8000]
     scenario = body.get("scenario")
+    sender = clean_sender(body.get("sender"))
 
     # The visitor's IP, behind Railway's proxy. Best effort: this is a courtesy
     # limit, and the spend ceiling is the control that actually matters.
@@ -228,7 +262,7 @@ async def run(request: Request):
                  or (request.client.host if request.client else "unknown"))
 
     return StreamingResponse(
-        run_stream(posting, scenario, client_ip),
+        run_stream(posting, scenario, client_ip, sender),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
                  "Connection": "keep-alive"})

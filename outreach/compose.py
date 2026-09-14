@@ -67,8 +67,71 @@ def company_url(company: str) -> str:
     return f"{SITE_URL}/companies/{slugify(company)}/"
 
 
+# Whether the sender is the person who built the dataset, or somebody using it.
+#
+# This is not a wording preference. Three of these templates say "a pipeline I
+# built" and "I build a public dataset", which is true of the owner and a lie in
+# anybody else's name. A stranger using the public page is citing the data, not
+# claiming to have made it, and the sentences change accordingly. Getting this
+# wrong would put a false claim in a message someone actually sends.
+def _authored(me: dict) -> bool:
+    return not me.get("_borrowed")
+
+
+# The insight sentences are written in the owner's voice - "the companies I track"
+# - because until now the owner was the only person sending them. In somebody
+# else's message that phrase contradicts the sentence above it, which says they
+# were reading a public dataset rather than keeping one. Swapped at the point of
+# use rather than changed in insights.py, because the site and the owner's own
+# drafts should keep saying "I track": there, it is true.
+BORROWED_VOICE = (
+    ("the companies I track", "the companies it tracks"),
+    ("companies I track", "companies it tracks"),
+    ("I've been accumulating", "that has been accumulating"),
+)
+
+
+def _voice(text: str, me: dict) -> str:
+    if _authored(me):
+        return text
+    for mine, theirs in BORROWED_VOICE:
+        text = text.replace(mine, theirs)
+    return text
+
+
+def _about(me: dict) -> str:
+    """"I'm a Computer Science student at McGill", from whatever was given."""
+    program, school = me.get("program", ""), me.get("school", "")
+    if program and school:
+        return f"I'm a {program} student at {school},"
+    if program:
+        return f"I'm a {program} student,"
+    if school:
+        return f"I'm a student at {school},"
+    return "I'm a student,"
+
+
+def _seeking(me: dict) -> str:
+    """
+    "Winter 2027 Data Engineer" from whichever parts were given.
+
+    Every field is optional on the public page - somebody may give a term and no
+    role, or neither - and the templates used to index them directly, so a missing
+    one raised a KeyError in the middle of writing a message. Joined rather than
+    interpolated, so an absent part leaves no gap behind it.
+    """
+    return " ".join(x for x in (me.get("term", ""), me.get("role", "")) if x)
+
+
 def _sender() -> dict:
-    """The few profile fields the templates need, in message-ready form."""
+    """
+    The few profile fields the templates need, in message-ready form.
+
+    Every message function now takes an optional `sender` and falls back to this.
+    The public page passes the visitor's own details so the draft is theirs to
+    send; everything run from the command line passes nothing and gets the
+    configured profile, exactly as before.
+    """
     p = PROFILE
     seeking = p["seeking"]
     return {
@@ -109,18 +172,22 @@ def _lead(insights: list) -> tuple[str, str | None]:
     return lead.text, second
 
 
-def connection_note(company: str, insights: list) -> str:
+def connection_note(company: str, insights: list, sender: dict | None = None) -> str:
     """LinkedIn connection note. Hard 300-character cap, so one fact only."""
     lead, _ = _lead(insights)
-    me = _sender()
-    note = (f"Hi - I build a public dataset on data-engineering hiring and "
-            f"{company} came up: {lead}. I put the numbers at "
-            f"{company_url(company)}. I'm a {me['school']} student looking at "
-            f"{me['term']} - would value your read on it.")
+    me = sender or _sender()
+    lead = _voice(lead, me)
+    source = ("I build a public dataset on data-engineering hiring and"
+              if _authored(me) else
+              "I was reading a public dataset on data-engineering hiring and")
+    note = (f"Hi - {source} "
+            f"{company} came up: {lead}. The numbers are at "
+            f"{company_url(company)}. {_about(me)} "
+            f"looking at {me.get('term', '')} - would value your read on it.")
     if len(note) > CONNECTION_LIMIT:
         # Drop the school clause before truncating anything factual: the fact
         # and the link are what earn the accept.
-        note = (f"Hi - I build a public dataset on data-engineering hiring and "
+        note = (f"Hi - {source} "
                 f"{company} came up: {lead}. Numbers here: "
                 f"{company_url(company)} - would value your read.")
     if len(note) > CONNECTION_LIMIT:
@@ -128,10 +195,12 @@ def connection_note(company: str, insights: list) -> str:
     return note
 
 
-def followup(company: str, insights: list) -> str:
+def followup(company: str, insights: list, sender: dict | None = None) -> str:
     """Sent after a connection request is accepted. ~120 words."""
     lead, second = _lead(insights)
-    me = _sender()
+    me = sender or _sender()
+    lead = _voice(lead, me)
+    second = _voice(second, me) if second else second
     # `second` is a clause about the company ("220 of their 997 open roles
     # were posted in the last 30 days"), so it needs a connector that takes a
     # clause. "They also showed up as <clause>" does not parse.
@@ -139,37 +208,48 @@ def followup(company: str, insights: list) -> str:
     return "\n\n".join([
         "Thanks for connecting.",
         _para(f"The reason {company} caught my attention: {lead}.{also}",
-              "That comes out of a pipeline I built that tracks data-engineering",
-              "hiring daily - postings from company career boards, visa filings",
-              "from the Department of Labor, and a per-technology demand index",
-              "I've been accumulating because nobody publishes one.",
+              *(("That comes out of a pipeline I built that tracks",
+                 "data-engineering hiring daily - postings from company career",
+                 "boards, visa filings from the Department of Labor, and a",
+                 "per-technology demand index I've been accumulating because",
+                 "nobody publishes one.")
+                if _authored(me) else
+                ("That comes out of a public dataset tracking data-engineering",
+                 "hiring daily - postings from company career boards, visa filings",
+                 "from the Department of Labor, and a per-technology demand",
+                 "index.")),
               f"Your page is at {company_url(company)} if you want to check the",
               "figures."),
-        _para(f"I'm a {me['program']} student at {me['school']} looking for a",
-              f"{me['term']} {me['role']} term ({me['months']} months).",
+        _para(_about(me), f"looking for a {_seeking(me)} term." if _seeking(me)
+              else "getting in touch.",
               "Not asking you to forward a resume - I'd genuinely value your read",
-              f"on whether the pipeline design holds up against how {company}",
-              "actually works."),
+              f"on whether this holds up against how {company} actually works."),
     ])
 
 
-def email(company: str, insights: list) -> str:
+def email(company: str, insights: list, sender: dict | None = None) -> str:
     """Cold email. ~105 words, and the subject line carries the fact."""
     lead, _ = _lead(insights)
-    me = _sender()
+    me = sender or _sender()
+    lead = _voice(lead, me)
     subject = f"{possessive(company)} hiring, from the data side"
     body = "\n\n".join([
         "Hi,",
-        _para("I maintain a public dataset on data-engineering hiring, and",
+        _para(("I maintain a public dataset on data-engineering hiring, and"
+               if _authored(me) else
+               "I was looking through a public dataset on data-engineering hiring,"
+               " and"),
               f"{company} stood out: {lead}. The page is {company_url(company)}",
               "- every figure there traces back to a query."),
-        _para("I built it end to end: daily ingestion from company career boards",
-              "into a warehouse, dbt models, and a per-technology demand index",
-              "accumulated daily because no public source has one."),
-        _para(f"I'm a {me['program']} student at {me['school']} looking for a",
-              f"{me['term']} {me['role']} term. Rather than a resume, I'd value",
-              "your opinion: does this match how hiring actually looks from",
-              f"inside {company}?"),
+        *([_para("I built it end to end: daily ingestion from company career boards",
+                 "into a warehouse, dbt models, and a per-technology demand index",
+                 "accumulated daily because no public source has one.")]
+          if _authored(me) else []),
+        _para(_about(me), f"looking for a {_seeking(me)} term." if _seeking(me)
+              else "getting in touch.",
+              "Rather than a resume, I'd value your opinion: does this match how",
+              f"hiring actually looks from inside {company}?"),
+        *([me["name"]] if me.get("name") else []),
     ])
     return f"Subject: {subject}\n\n{body}"
 
@@ -185,7 +265,8 @@ def baseline_companies(cur, names: list[str]) -> list[str]:
     return sorted(set(rows) | set(names))
 
 
-def drafts_for(cur, company: str, peers: dict, market: dict, days: int) -> dict:
+def drafts_for(cur, company: str, peers: dict, market: dict, days: int,
+               sender: dict | None = None) -> dict:
     facts = _fetch_facts(cur, company)
     if not facts or not facts.get("roles"):
         return {"company": company, "error": "no postings stored"}
@@ -197,9 +278,9 @@ def drafts_for(cur, company: str, peers: dict, market: dict, days: int) -> dict:
         "url": company_url(company),
         "insights": [{"tier": i.tier, "kind": i.kind, "text": i.text,
                       "evidence": i.evidence} for i in insights],
-        "connection": connection_note(company, insights),
-        "followup": followup(company, insights),
-        "email": email(company, insights),
+        "connection": connection_note(company, insights, sender),
+        "followup": followup(company, insights, sender),
+        "email": email(company, insights, sender),
     }
 
 

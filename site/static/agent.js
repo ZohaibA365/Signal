@@ -189,9 +189,21 @@
     else replay(scenarioById(fallbackId));
   }
 
+  /* Whatever the visitor told us about themselves. All optional: an empty object
+     means the service uses its default, so the button works with nothing filled in. */
+  function sender() {
+    var out = {}, map = { name: "s-name", program: "s-program",
+                          school: "s-school", term: "s-term" };
+    Object.keys(map).forEach(function (key) {
+      var field = document.getElementById(map[key]);
+      if (field && field.value.trim()) out[key] = field.value.trim();
+    });
+    return out;
+  }
+
   el.run.addEventListener("click", function () {
     var text = (el.paste.value || "").trim();
-    start({ posting: text }, "real");
+    start({ posting: text, sender: sender() }, "real");
   });
 
   el.presets.addEventListener("click", function (e) {

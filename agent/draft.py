@@ -95,7 +95,16 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
             lines.append(f"   evidence: {insight['evidence']}")
     lines += [
         "",
+        # Whether the sender built this dataset or is simply citing it. Saying "a
+        # pipeline I built" in the name of somebody who did not build it is a lie
+        # in a message they may actually send.
+        ("THE SENDER built and maintains this dataset."
+         if not sender.get("_borrowed") else
+         "THE SENDER did NOT build this dataset - they are citing it. Never write "
+         "that they built, maintain or run it."),
+        "",
         "THE SENDER:",
+        f"  name: {sender.get('name', '(unnamed - do not invent one)')}",
         f"  {sender.get('program', '')} student at {sender.get('school', '')}",
         f"  looking for a {sender.get('term', '')} {sender.get('role', '')} term",
         "  built: daily ingestion from company career boards into a warehouse,",

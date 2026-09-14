@@ -58,11 +58,14 @@ class DraftingContext:
     the batch shares it.
     """
 
-    def __init__(self, cur, companies: list[str]):
+    def __init__(self, cur, companies: list[str], sender: dict | None = None):
         self.market = load_market(cur)
         self.peers = peer_stats(cur, baseline_companies(cur, companies))
         self.days = collection_days(cur)
-        self.sender = _sender()
+        # Whose message this is. None means the configured profile, which is what
+        # every command-line run wants; the public page passes the visitor's own
+        # details so the draft is theirs rather than a sample of somebody else's.
+        self.sender = sender or _sender()
 
 
 # ---------------------------------------------------------------------- lookup
@@ -148,7 +151,8 @@ def draft_outreach_email(cur, job_id: str, company: str, context: DraftingContex
         return ToolResult("draft_outreach_email", False, rejected=True,
                           detail=status.data["reason"], data={"job_id": job_id})
 
-    template = drafts_for(cur, stored_company, context.peers, context.market, context.days)
+    template = drafts_for(cur, stored_company, context.peers, context.market,
+                          context.days, context.sender)
     if template.get("error"):
         return ToolResult("draft_outreach_email", False,
                           detail=f"cannot draft for {stored_company}: {template['error']}",
