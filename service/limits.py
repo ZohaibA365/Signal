@@ -16,8 +16,14 @@ from __future__ import annotations
 import os
 from datetime import UTC, date, datetime
 
-# Per visitor, per day. Enough to run the four presets and try one of their own.
-RUNS_PER_CLIENT = int(os.getenv("AGENT_RUNS_PER_IP", "5"))
+# Per visitor, per day. Five was set on the assumption that a visitor is one
+# person at one address, and that assumption is wrong on exactly the networks this
+# page is shared into: a university NAT puts a whole campus behind one address, so
+# five was five runs for all of Waterloo, and the author hit the cap testing his
+# own site. Twenty costs at most forty cents against a two dollar ceiling, so the
+# ceiling below is still what binds - which was always the intent. The per-address
+# cap only has to stop someone sitting on the button.
+RUNS_PER_CLIENT = int(os.getenv("AGENT_RUNS_PER_IP", "20"))
 
 # The whole service, per day, in dollars. At roughly two cents a run this is about
 # a hundred runs. Past it the endpoint stops spending and the page falls back to a
