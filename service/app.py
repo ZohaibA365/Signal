@@ -324,6 +324,20 @@ async def stats():
 
 @app.get("/healthz")
 async def healthz():
-    """Liveness only. A database check here would let a Neon blip restart a
-    perfectly healthy process, which is the opposite of what this is for."""
-    return {"ok": True, "at": datetime.now(UTC).isoformat()}
+    """
+    Liveness only. A database check here would let a Neon blip restart a perfectly
+    healthy process, which is the opposite of what this is for.
+
+    It also names the build. Answering "has my fix deployed yet" used to require
+    running the agent, which costs a model call and consumes one of the day's
+    visitor slots - so checking a deploy competed with the thing being deployed,
+    and twenty checks exhausted the daily allowance for everyone on the address.
+    The commit is right here instead, free and unlimited.
+    """
+    return {
+        "ok": True,
+        "at": datetime.now(UTC).isoformat(),
+        # Railway sets this on every deploy. Absent when run locally, which is
+        # itself the answer to "am I looking at the deployed one".
+        "commit": (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "local")[:12],
+    }
