@@ -146,6 +146,10 @@ def test_the_ignore_check_can_actually_fail():
     list((ROOT / "tests" / "fixtures").glob("*.csv"))
     + [ROOT / "storage" / "employer_aliases.csv"]
     + list((ROOT / "dbt_signal" / "seeds").glob("*.csv"))
+    # Recorded agent runs are source for the /agent/ console, not pulled data.
+    # The blanket data/ rule matched them, and an excluded recording renders an
+    # empty console in CI while working perfectly on the machine that built it.
+    + list((ROOT / "site" / "data").glob("*.json"))
 ), ids=lambda p: p.name)
 def test_committed_data_files_are_not_gitignored(path):
     """

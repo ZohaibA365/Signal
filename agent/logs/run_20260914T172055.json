@@ -1,0 +1,61 @@
+{
+  "run": "20260914T172055",
+  "finished_at": "2026-09-14T17:20:58.737021+00:00",
+  "model": "claude-haiku-4-5-20251001",
+  "draft_model": "claude-haiku-4-5-20251001",
+  "dry_run": false,
+  "criteria": {
+    "min_score": 75,
+    "status": "not_contacted",
+    "limit": 5,
+    "job_id": "company_board:workday:R-0000186330"
+  },
+  "max_steps_per_job": 8,
+  "summary": {
+    "postings": 1,
+    "companies": 1,
+    "drafted": 0,
+    "drafted_by_model": 0,
+    "drafted_by_template": 0,
+    "rejected_calls": 0,
+    "outcomes": {
+      "finished": 1
+    }
+  },
+  "jobs": [
+    {
+      "job_id": "company_board:workday:R-0000186330",
+      "company": "RBC",
+      "title": "2027 Winter - GRM, ALM Risk Data & Automation Analyst Intern (4 Months)",
+      "fit_score": 88,
+      "steps": [
+        {
+          "step": 1,
+          "tool": "check_application_status",
+          "arguments": {
+            "job_id": "company_board:workday:R-0000186330"
+          },
+          "ok": true,
+          "rejected": false,
+          "detail": "email_drafted; drafting blocked",
+          "ms": 37,
+          "at": "2026-09-14T17:20:57.947062+00:00",
+          "data": {
+            "job_id": "company_board:workday:R-0000186330",
+            "exists": true,
+            "status": "email_drafted",
+            "company": "RBC",
+            "job_title": "2027 Winter - GRM, ALM Risk Data & Automation Analyst Intern (4 Months)",
+            "fit_score": 88,
+            "eligible_to_draft": false,
+            "reason": "already at status 'email_drafted'; drafting again would duplicate it",
+            "updated_at": "2026-09-13T23:18:53.748880+00:00"
+          }
+        }
+      ],
+      "outcome": "finished",
+      "drafted": false,
+      "summary": "The application status is already \"email_drafted\", so outreach for this posting has already been completed and I cannot draft again to avoid duplication."
+    }
+  ]
+}

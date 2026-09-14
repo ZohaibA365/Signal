@@ -23,6 +23,13 @@ dbt_signal/package-lock.yml
 
 # Data — raw pulls stay in S3, not in git
 data/
+# ...but site/data holds recorded agent runs, which are source code for the page
+# rather than pulled data. The blanket data/ rule matches any directory of that
+# name at any depth, which silently excluded them - and an excluded recording
+# means the console renders empty in CI while working perfectly here. That is the
+# exact failure this page is built to never have.
+!site/data/
+!site/data/*.json
 *.parquet
 *.csv
 # dbt seeds are source code, not data. A blanket *.csv rule silently excluded

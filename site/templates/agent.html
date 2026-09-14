@@ -9,11 +9,43 @@
   giving up the guarantee every other number on this site is held to.
 </p>
 
-<div class="note">
-  <b>Nothing here is interactive, and that is deliberate.</b> The agent drafts messages
-  in one person's name, writes to their application tracker and spends their API
-  budget. A public button doing that would be a liability, not a feature.
+
+<div class="runbar">
+  <textarea id="paste" placeholder="Paste a job posting. The company name is what matters &mdash; the run executes against a real open role there."></textarea>
+  <button class="go" id="run">Run the agent</button>
 </div>
+
+<div id="console" class="console"></div>
+<p class="note" id="mode"></p>
+
+<div class="presets" id="presets">
+  <b>Try to break it:</b>
+  <button data-scenario="already_contacted">Already contacted</button>
+  <button data-scenario="unknown_posting">A posting that does not exist</button>
+  <button data-scenario="wrong_company">A company the model invented</button>
+  <button data-scenario="step_cap">A model that will not stop</button>
+</div>
+
+<div id="draft" class="draftbox"></div>
+
+<div class="strip">
+  <span><b>{{ agent_stats.runs }}</b> runs</span>
+  <span><b>{{ agent_stats.blocked }}</b> duplicate emails blocked</span>
+  <span><b>{{ agent_stats.rejected }}</b> invalid actions rejected</span>
+  <span><b>{{ agent_stats.verified }}</b> drafts fact-checked</span>
+</div>
+
+<p class="note">
+  The paste box identifies the employer; the run then executes against a real open
+  posting at that company, because the drafts are built from what the warehouse
+  knows about them. A company Signal has no postings for has nothing true to say
+  about it, and the agent says so rather than inventing something.
+</p>
+
+<details class="src">
+  <summary>The actual validator, not a description of it</summary>
+  <div class="code">{{ agent_source }}</div>
+</details>
 
 
 <h2>What it does</h2>
@@ -171,4 +203,10 @@ check_application_status   ok        email_drafted; <i>drafting blocked</i></div
 </p>
 
 </div>
+
+<script>
+window.SIGNAL_AGENT_RUNS = {{ agent_runs | safe }};
+window.SIGNAL_AGENT_API = {{ agent_api | safe }};
+</script>
+<script src="{{ rel }}agent.js?v={{ stats.build_hash }}" defer></script>
 {% endblock %}

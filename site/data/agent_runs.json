@@ -1,0 +1,317 @@
+{
+  "scenarios": [
+    {
+      "id": "real",
+      "staged": false,
+      "label": "TD Bank — a real run",
+      "company": "TD Bank",
+      "title": "Data Engineer Intern/Co-op​ (Winter 2027)",
+      "note": "An actual run from the log, model-written and verified.",
+      "events": [
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 103
+        },
+        {
+          "kind": "step",
+          "tool": "draft_outreach_email",
+          "status": "ok",
+          "before": "Drafting outreach from what the warehouse knows about them...",
+          "note": "Drafted from 6 verified observation(s), written by the model.",
+          "detail": "6 insight(s), drafted by the model",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "company": "TD Bank"
+          },
+          "ms": 4868
+        },
+        {
+          "kind": "step",
+          "tool": "update_tracker_status",
+          "status": "ok",
+          "before": "Recording the outcome in the tracker...",
+          "note": "Tracker updated: not_contacted → email_drafted.",
+          "detail": "not_contacted -> email_drafted",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "new_status": "email_drafted",
+            "notes": "Data Engineer Intern/Co-op outreach drafted with hiring trend analysis"
+          },
+          "ms": 93
+        },
+        {
+          "kind": "done",
+          "note": "Done. Draft written by the model, every figure in it checked against the warehouse.",
+          "outcome": "email_drafted"
+        }
+      ]
+    },
+    {
+      "id": "already_contacted",
+      "staged": false,
+      "label": "Already contacted",
+      "company": "TD Bank",
+      "title": "Data Engineer Intern/Co-op (Winter 2027)",
+      "note": "The duplicate rail, against a posting already marked as contacted. The refusal is real; the tracker row is a sandbox one.",
+      "events": [
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Already contacted (email_sent) — skipping to avoid a duplicate.",
+          "detail": "email_sent; drafting blocked",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "draft_outreach_email",
+          "status": "rejected",
+          "before": "Drafting outreach from what the warehouse knows about them...",
+          "note": "Refused: already contacted. Nothing was drafted.",
+          "detail": "already at status 'email_sent'; drafting again would duplicate it",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "company": "TD Bank"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "update_tracker_status",
+          "status": "rejected",
+          "before": "Recording the outcome in the tracker...",
+          "note": "Refused: this posting is already email_sent, and the agent may only move one from not_contacted to email_drafted. The tracker was not changed.",
+          "detail": "the agent may not move a posting from 'email_sent' to 'email_drafted'; allowed: [('not_contacted', 'email_drafted')]",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "new_status": "email_drafted",
+            "notes": "drafted"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "done",
+          "note": "Finished without drafting.",
+          "outcome": "finished"
+        }
+      ]
+    },
+    {
+      "id": "unknown_posting",
+      "staged": false,
+      "label": "A posting that does not exist",
+      "company": "TD Bank",
+      "title": "Data Engineer Intern/Co-op (Winter 2027)",
+      "note": "A reference to a posting absent from the database. Nothing is looked up and nothing is written.",
+      "events": [
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "rejected",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "That posting is not in the database. Nothing was looked up.",
+          "detail": "no posting 'company_board:workday:R_1509826' exists",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "draft_outreach_email",
+          "status": "rejected",
+          "before": "Drafting outreach from what the warehouse knows about them...",
+          "note": "That posting is not in the database. Nothing was looked up.",
+          "detail": "no posting 'company_board:workday:R_1509826' exists",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "company": "TD Bank"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "update_tracker_status",
+          "status": "rejected",
+          "before": "Recording the outcome in the tracker...",
+          "note": "That posting is not in the database. Nothing was looked up.",
+          "detail": "no posting 'company_board:workday:R_1509826' exists",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "new_status": "email_drafted",
+            "notes": "drafted"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "done",
+          "note": "Finished without drafting.",
+          "outcome": "finished"
+        }
+      ]
+    },
+    {
+      "id": "wrong_company",
+      "staged": true,
+      "label": "A company the model invented",
+      "company": "TD Bank",
+      "title": "Data Engineer Intern/Co-op (Winter 2027)",
+      "note": "Staged: the model is scripted to name the wrong employer. The validator's refusal is the real part.",
+      "events": [
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "draft_outreach_email",
+          "status": "rejected",
+          "before": "Drafting outreach from what the warehouse knows about them...",
+          "note": "Refused: the model said Goldman Sachs, but this posting belongs to TD Bank. Nothing was drafted.",
+          "detail": "company mismatch: the model passed 'Goldman Sachs' but company_board:workday:R_1509826 belongs to 'TD Bank'",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826",
+            "company": "Goldman Sachs"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "done",
+          "note": "Finished without drafting.",
+          "outcome": "finished"
+        }
+      ]
+    },
+    {
+      "id": "step_cap",
+      "staged": true,
+      "label": "A model that will not stop",
+      "company": "TD Bank",
+      "title": "Data Engineer Intern/Co-op (Winter 2027)",
+      "note": "Staged: the model is scripted to call the same tool forever. The cap of 8 calls per posting is the real part.",
+      "events": [
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "step",
+          "tool": "check_application_status",
+          "status": "ok",
+          "before": "Checking whether this company has been contacted before...",
+          "note": "Not contacted before — clear to draft.",
+          "detail": "not_contacted; drafting allowed",
+          "arguments": {
+            "job_id": "company_board:workday:R_1509826"
+          },
+          "ms": 0
+        },
+        {
+          "kind": "done",
+          "note": "Stopped at the step limit. The agent is capped at 8 calls per posting.",
+          "outcome": "step limit reached"
+        }
+      ]
+    }
+  ]
+}

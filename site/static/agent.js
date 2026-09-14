@@ -1,0 +1,189 @@
+/* The agent console.
+ *
+ * Two sources, one renderer. If the live service answers within LIVE_TIMEOUT it
+ * streams real events; otherwise a recorded run plays with identical rendering.
+ * A visitor therefore never sees a broken panel - deploys, outages, the daily
+ * budget ceiling and "the backend does not exist yet" all look the same, and none
+ * of them looks like a failure.
+ *
+ * The recorded runs are genuine: real agent code, real validators, replayed from
+ * site/data/agent_runs.json. Where the model's misbehaviour was scripted rather
+ * than observed, the scenario carries staged:true and the page says so.
+ */
+(function () {
+  "use strict";
+
+  var API = window.SIGNAL_AGENT_API || "";      // set when the service exists
+  var LIVE_TIMEOUT = 2000;                       // ms to wait before falling back
+  var STEP_PAUSE = 620;                          // ms between steps when replaying
+  var TYPE_SPEED = 9;                            // ms per character for the draft
+
+  var el = {
+    console: document.getElementById("console"),
+    draft: document.getElementById("draft"),
+    paste: document.getElementById("paste"),
+    run: document.getElementById("run"),
+    mode: document.getElementById("mode"),
+    presets: document.getElementById("presets")
+  };
+  if (!el.console) return;
+
+  var DATA = window.SIGNAL_AGENT_RUNS || { scenarios: [] };
+  var running = false;
+  var timers = [];
+
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+
+  function line(cls, mark, text, detail) {
+    var row = document.createElement("div");
+    row.className = "ln " + cls;
+    var m = document.createElement("span");
+    m.className = "mk";
+    m.textContent = mark;
+    var t = document.createElement("span");
+    t.className = "tx";
+    t.textContent = text;
+    row.appendChild(m);
+    row.appendChild(t);
+    el.console.appendChild(row);
+    if (detail) {
+      var d = document.createElement("div");
+      d.className = "det";
+      d.textContent = detail;
+      el.console.appendChild(d);
+    }
+    el.console.scrollTop = el.console.scrollHeight;
+    return row;
+  }
+
+  function reset(note) {
+    clearTimers();
+    el.console.innerHTML = "";
+    el.draft.textContent = "";
+    el.mode.textContent = note || "";
+  }
+
+  /* One event, rendered. Shared by the live path and the replay so the two cannot
+     drift apart visually. */
+  function render(ev) {
+    if (ev.kind === "done") {
+      var row = line("done", "", ev.note || "");
+      row.className = "ln done";
+      return;
+    }
+    if (ev.before) line("say", "·", ev.before);
+    var cls = ev.status === "ok" ? "ok" : (ev.status === "rejected" ? "rej" : "fail");
+    var mark = ev.status === "ok" ? "✓" : (ev.status === "rejected" ? "▲" : "✕");
+    line(cls, mark, ev.note || "", ev.detail);
+  }
+
+  function typeOut(text) {
+    if (!text) return;
+    var i = 0;
+    el.draft.textContent = "";
+    (function tick() {
+      if (i >= text.length) return;
+      // Several characters per frame: one at a time is slower than reading and
+      // stops feeling like output, it starts feeling like waiting.
+      el.draft.textContent += text.slice(i, i + 3);
+      i += 3;
+      later(tick, TYPE_SPEED);
+    })();
+  }
+
+  function replay(scenario) {
+    running = true;
+    reset(scenario.staged
+      ? "Recorded run · the model's misbehaviour here was scripted; the refusal is real"
+      : "Recorded run · real agent, real validators");
+    if (scenario.note) line("say", "·", scenario.note);
+    line("say", "·", scenario.company + " — " + scenario.title);
+
+    var i = 0;
+    (function step() {
+      if (i >= scenario.events.length) {
+        running = false;
+        if (scenario.draft) typeOut(scenario.draft);
+        return;
+      }
+      render(scenario.events[i++]);
+      later(step, STEP_PAUSE);
+    })();
+  }
+
+  function scenarioById(id) {
+    for (var i = 0; i < DATA.scenarios.length; i++) {
+      if (DATA.scenarios[i].id === id) return DATA.scenarios[i];
+    }
+    return DATA.scenarios[0];
+  }
+
+  /* Live, when there is something to be live against. Falls back on any failure at
+     any point, including mid-stream, because a half-finished console is the one
+     outcome worth avoiding. */
+  function live(payload, fallbackId) {
+    var fellBack = false;
+    function fallback() {
+      if (fellBack) return;
+      fellBack = true;
+      replay(scenarioById(fallbackId));
+    }
+
+    var ctrl = new AbortController();
+    var guard = setTimeout(function () { ctrl.abort(); fallback(); }, LIVE_TIMEOUT);
+
+    fetch(API + "/api/agent/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal
+    }).then(function (res) {
+      if (!res.ok || !res.body) throw new Error("no stream");
+      clearTimeout(guard);
+      running = true;
+      reset("Live run");
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      (function pump() {
+        reader.read().then(function (chunk) {
+          if (chunk.done) { running = false; return; }
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var parts = buffer.split("\n\n");
+          buffer = parts.pop();
+          parts.forEach(function (part) {
+            var body = part.replace(/^data: ?/gm, "").trim();
+            if (!body) return;
+            try {
+              var ev = JSON.parse(body);
+              if (ev.kind === "draft") typeOut(ev.text);
+              else render(ev);
+            } catch (e) { /* a malformed frame is not worth breaking the run for */ }
+          });
+          pump();
+        }).catch(fallback);
+      })();
+    }).catch(function () { clearTimeout(guard); fallback(); });
+  }
+
+  function start(payload, fallbackId) {
+    if (running) return;
+    if (API) live(payload, fallbackId);
+    else replay(scenarioById(fallbackId));
+  }
+
+  el.run.addEventListener("click", function () {
+    var text = (el.paste.value || "").trim();
+    start({ posting: text }, "real");
+  });
+
+  el.presets.addEventListener("click", function (e) {
+    var id = e.target.getAttribute("data-scenario");
+    if (!id) return;
+    start({ scenario: id }, id);
+  });
+
+  // Play the real run once on arrival, so the panel is never an empty box.
+  if (DATA.scenarios.length) replay(scenarioById("real"));
+})();

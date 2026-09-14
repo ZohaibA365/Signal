@@ -64,6 +64,41 @@ def slugify(name: str) -> str:
     return s or "unknown"
 
 
+
+def _agent_stats() -> dict:
+    """
+    Counters for the agent page, read from the run logs it actually produced.
+
+    Real numbers or none: every figure on this site traces to something, and a
+    stats strip showing invented totals would be the one place that stopped being
+    true. A missing or unreadable log contributes nothing rather than a guess.
+    """
+    stats = {"runs": 0, "blocked": 0, "rejected": 0, "verified": 0}
+    for path in sorted((ROOT / "agent" / "logs").glob("run_*.json")):
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if data.get("dry_run"):
+            continue
+        for job in data.get("jobs", []):
+            stats["runs"] += 1
+            for step in job.get("steps", []):
+                # A duplicate is blocked the moment drafting is refused, whether or
+                # not the model then tries anyway. Counting only rejected CALLS
+                # measured the wrong thing: when the rail works best the model reads
+                # the refusal and stops, so nothing is ever rejected and the counter
+                # read zero on runs where it had done its job perfectly.
+                if step.get("data", {}).get("eligible_to_draft") is False:
+                    stats["blocked"] += 1
+                if step.get("rejected"):
+                    stats["rejected"] += 1
+            if job.get("verification"):
+                stats["verified"] += 1
+    return stats
+
+
 def fetch_all(cur) -> dict:
     """Run every query once. Empty results fail the build rather than silently
     publishing an empty page - a stale or blank site is worse than none."""
@@ -264,8 +299,9 @@ def build(skip_pages: bool = False) -> None:
         shutil.rmtree(DIST)
     DIST.mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / "static" / "style.css", DIST / "style.css")
-    if (HERE / "static" / "search.js").exists():
-        shutil.copy(HERE / "static" / "search.js", DIST / "search.js")
+    for script in ("search.js", "agent.js"):
+        if (HERE / "static" / script).exists():
+            shutil.copy(HERE / "static" / script, DIST / script)
     if (HERE / "static" / "favicon.svg").exists():
         shutil.copy(HERE / "static" / "favicon.svg", DIST / "favicon.svg")
 
@@ -555,12 +591,37 @@ def build(skip_pages: bool = False) -> None:
     # A page ABOUT the agent, not the agent itself. It is static like everything
     # else here: the tool drafts messages in one person's name, writes to their
     # tracker and spends their API budget, so nothing on this page is operable.
+    agent_stats = _agent_stats()
+
+    # The recorded runs the console plays when the live service is unreachable -
+    # deploying, restarting, over its daily budget, or not yet built. They are real
+    # runs of the real agent, produced by agent/record_scenarios.py, so the page is
+    # never showing a mock-up. A missing file is not fatal: the console simply has
+    # nothing to play, and every other word on the page still stands.
+    runs_path = HERE / "data" / "agent_runs.json"
+    agent_runs = runs_path.read_text() if runs_path.exists() else '{"scenarios": []}'
+    if not runs_path.exists():
+        log.warning("site/data/agent_runs.json is missing - the agent console will "
+                    "be empty. Run: python agent/record_scenarios.py")
+
+    # Read from the source file rather than retyped, so the panel claiming to show
+    # the validator cannot drift from the validator.
+    validator = (ROOT / "agent" / "schemas.py").read_text()
+    start = validator.index("def validate_transition")
+    agent_source = validator[start:validator.index("def draft_is_allowed")].strip()
+
     render("agent.html", DIST / "agent" / "index.html",
            nav="agent", rel="../", canonical="/agent/",
            page_title="The outreach agent - how it is built | Signal",
            page_description=("An agent that drafts outreach from this dataset and "
                              "cannot send it: the safety rails, and the check that "
-                             "lets a model write prose without inventing figures."))
+                             "lets a model write prose without inventing figures."),
+           agent_runs=agent_runs,
+           agent_source=agent_source,
+           # Empty until the service exists. The console falls back to the
+           # recordings whenever this is empty or the service does not answer.
+           agent_api=json.dumps(os.getenv("SIGNAL_AGENT_API", "")),
+           agent_stats=agent_stats)
 
     # ---- sitemap / robots -------------------------------------------------
     urls = ["/", "/market/", "/companies/", "/tech/", "/agent/"]
