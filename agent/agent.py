@@ -361,9 +361,12 @@ def main() -> None:
 def _real_client():
     import anthropic
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
         raise SystemExit("ANTHROPIC_API_KEY is not set")
-    return anthropic.Anthropic(timeout=90.0, max_retries=3)
+    # Stripped: whitespace around a key becomes an invalid header and surfaces as
+    # a connection error rather than an auth error. See service/app.py.
+    return anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
+                               timeout=90.0, max_retries=3)
 
 
 def _write_log(records: list[dict], args, companies: list[str]) -> None:

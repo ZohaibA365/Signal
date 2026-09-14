@@ -176,7 +176,19 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str,
                                f"open role there: {job['title']}.")})
 
                 import anthropic
-                api = anthropic.Anthropic(timeout=30.0, max_retries=1)
+                # .strip(), and it is not defensive tidiness. A key pasted into a
+                # hosting dashboard arrives with whatever came with it, and a
+                # single trailing newline makes an invalid HTTP header, which the
+                # SDK reports as APIConnectionError: Connection error - a message
+                # that says the network is down when the network is fine. This
+                # service ran for two hours telling every visitor "that run could
+                # not be completed" for exactly that reason, with a valid key in
+                # the variable. One character, and the error names the wrong
+                # subsystem, so the cost is measured in hours of looking at the
+                # wrong thing.
+                api = anthropic.Anthropic(
+                    api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
+                    timeout=30.0, max_retries=1)
                 context = DraftingContext(cur, [job["company"]], sender)
                 record = agent_mod.process_job(
                     cur, job, context, api, MODEL, DRAFT_MODEL,

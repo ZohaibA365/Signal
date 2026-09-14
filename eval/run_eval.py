@@ -131,7 +131,8 @@ def assess_all(examples: list[dict], model: str) -> tuple[list[dict], float]:
     import anthropic
     from enrich import RATES, assess
 
-    client = anthropic.Anthropic()
+    # Stripped, as everywhere else the client is built. See service/app.py.
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip())
     rate_in, rate_cached, rate_out = RATES[model]
     actuals, cost = [], 0.0
 

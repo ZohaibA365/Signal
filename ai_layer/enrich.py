@@ -342,13 +342,16 @@ def main() -> None:
                     help="skip roles whose stated/estimated salary is below this")
     args = ap.parse_args()
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
         raise SystemExit("ANTHROPIC_API_KEY is not set")
 
     # The default 10-minute timeout with retries can wedge a run for half an
     # hour on a single stalled request. These are short classification calls -
     # if one has not returned in 90s it is not going to.
-    client = anthropic.Anthropic(timeout=90.0, max_retries=3)
+    # Stripped: whitespace around a key becomes an invalid header and is
+    # reported as a connection error rather than an auth one. See service/app.py.
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
+                                 timeout=90.0, max_retries=3)
     # The shared connection, not the POSTGRES_* variables. Reading those
     # directly targets the local container while dbt and the site read the
     # hosted warehouse - and in CI they are not set at all, so this step
