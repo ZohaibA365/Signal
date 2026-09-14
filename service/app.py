@@ -139,7 +139,14 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str,
     loop = asyncio.get_running_loop()
     conn = None
 
+    # How much of the run actually happened, so a failure can be told apart from a
+    # failure to start. Counted here rather than read off the record, because when
+    # the planner raises there is no record to read.
+    steps_seen = {"n": 0}
+
     def emit(payload: dict) -> None:
+        if payload.get("tool"):
+            steps_seen["n"] += 1
         loop.call_soon_threadsafe(queue.put_nowait, payload)
 
     def work() -> None:
@@ -190,9 +197,31 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str,
                     api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
                     timeout=30.0, max_retries=1)
                 context = DraftingContext(cur, [job["company"]], sender)
-                record = agent_mod.process_job(
-                    cur, job, context, api, MODEL, DRAFT_MODEL,
-                    agent_mod.MAX_STEPS_PER_JOB, on_event=emit)
+                try:
+                    record = agent_mod.process_job(
+                        cur, job, context, api, MODEL, DRAFT_MODEL,
+                        agent_mod.MAX_STEPS_PER_JOB, on_event=emit)
+                except Exception as exc:                             # noqa: BLE001
+                    # The model that PLANS the run is a dependency like any other,
+                    # and it can be unreachable while the warehouse, the rails, the
+                    # verifier and the drafting model are all fine. When that
+                    # happened the visitor was told the run "could not be
+                    # completed", which was true of the planner and false of
+                    # everything needed to write their email.
+                    #
+                    # Only when nothing has run yet. A failure partway through has
+                    # already written a tracker row, and starting over would either
+                    # duplicate work or trip the duplicate rail against this run's
+                    # own writes - so a partial failure is still reported as one.
+                    if steps_seen["n"]:
+                        raise
+                    log.warning("planner unavailable (%s); running the fixed sequence",
+                                type(exc).__name__)
+                    emit({"kind": "note",
+                          "note": "The planner is unreachable, so the three steps "
+                                  "are being run in their usual order instead."})
+                    record = agent_mod.run_fixed_sequence(
+                        cur, job, context, api, DRAFT_MODEL, on_event=emit)
 
                 # Only when THIS run drafted. The row keeps whatever was written
                 # last time, so reading it unconditionally showed an old draft after

@@ -99,9 +99,54 @@ def _voice(text: str, me: dict) -> str:
     return text
 
 
+def _article(phrase: str) -> str:
+    """"an Ai Engineer", "a CS student". Crude, and right far more often than not."""
+    return "an" if phrase[:1].lower() in "aeiou" else "a"
+
+
+# Nouns that need an article in front of them when somebody types a bare one.
+# "Looking for Summer 2027" is a sentence; "looking for Summer 2027 internship" is
+# not. Deliberately a short list of concrete nouns rather than anything clever:
+# a wrong guess here puts a wrong word in a message a person sends, so the rule
+# only fires where the answer is unambiguous, and leaves everything else alone.
+# Singular only: a plural ("internships") is already a complete noun phrase and
+# "an internships" is the kind of mistake this function exists to avoid.
+COUNTABLE = ("internship", "co-op", "coop", "role", "job", "position",
+             "placement", "term", "gig", "traineeship")
+
+
+def _needs_article(phrase: str) -> str:
+    # Determiners only. "full-time" is an adjective and still wants an article in
+    # front of it - "looking for full-time data role" was the bug that made this
+    # list explicit rather than a guess at what a leading word might be.
+    first = phrase.split(" ", 1)[0].lower()
+    if first in ("a", "an", "the", "my", "any", "some", "another", "one"):
+        return phrase
+    if phrase.rstrip(".").split(" ")[-1].lower() in COUNTABLE:
+        return f"{_article(phrase)} {phrase}"
+    return phrase
+
+
 def _about(me: dict) -> str:
     """"I'm a Computer Science student at McGill", from whatever was given."""
-    program, school = me.get("program", ""), me.get("school", "")
+    program, school = me.get("program", "").strip(), me.get("school", "").strip()
+
+    # A visitor's words are used exactly as typed, because the page asks open
+    # questions - "What you do", "Where" - and the answers already contain their
+    # own nouns. Wrapping them in "student" regardless turned "Ai Engineer" into
+    # "I'm a Ai Engineer student at Uwaterloo": the wrong article, a job title
+    # recast as a degree, and a description of somebody the sender is not. The
+    # owner's profile is structured and genuinely is a student, so that branch is
+    # unchanged and still reads as a sentence rather than a slot fill.
+    if not _authored(me):
+        if program and school:
+            return f"I'm {_article(program)} {program} at {school},"
+        if program:
+            return f"I'm {_article(program)} {program},"
+        if school:
+            return f"I'm at {school},"
+        return ""
+
     if program and school:
         return f"I'm a {program} student at {school},"
     if program:
@@ -109,6 +154,33 @@ def _about(me: dict) -> str:
     if school:
         return f"I'm a student at {school},"
     return "I'm a student,"
+
+
+def _wants(me: dict) -> str:
+    """
+    "looking for a Winter 2027 Data Engineer term", or the visitor's own phrase.
+
+    Same reasoning as _about. The owner seeks a co-op term and the word is
+    accurate; a visitor typed whatever they are looking for into a box labelled
+    "Looking for", and "looking for a full-time data role term" is not a sentence.
+    """
+    if not _authored(me):
+        want = me.get("term", "").strip()
+        return f"looking for {_needs_article(want)}" if want else ""
+    seeking = _seeking(me)
+    return f"looking for a {seeking} term" if seeking else ""
+
+
+def _intro(me: dict) -> str:
+    """Who the sender is and what they want, as one sentence, or nothing at all."""
+    about, wants = _about(me), _wants(me)
+    if about and wants:
+        return f"{about} {wants}."
+    if about:
+        return about.rstrip(",") + "."
+    if wants:
+        return f"I'm {wants}."
+    return ""
 
 
 def _seeking(me: dict) -> str:
@@ -182,8 +254,8 @@ def connection_note(company: str, insights: list, sender: dict | None = None) ->
               "I was reading a public dataset on data-engineering hiring and")
     note = (f"Hi - {source} "
             f"{company} came up: {lead}. The numbers are at "
-            f"{company_url(company)}. {_about(me)} "
-            f"looking at {me.get('term', '')} - would value your read on it.")
+            f"{company_url(company)}. {_intro(me).rstrip('.')}"
+            f"{' - ' if _intro(me) else ''}would value your read on it.")
     if len(note) > CONNECTION_LIMIT:
         # Drop the school clause before truncating anything factual: the fact
         # and the link are what earn the accept.
@@ -220,8 +292,7 @@ def followup(company: str, insights: list, sender: dict | None = None) -> str:
                  "index.")),
               f"Your page is at {company_url(company)} if you want to check the",
               "figures."),
-        _para(_about(me), f"looking for a {_seeking(me)} term." if _seeking(me)
-              else "getting in touch.",
+        _para(_intro(me) or "Getting in touch because it seemed worth asking.",
               "Not asking you to forward a resume - I'd genuinely value your read",
               f"on whether this holds up against how {company} actually works."),
     ])
@@ -245,8 +316,7 @@ def email(company: str, insights: list, sender: dict | None = None) -> str:
                  "into a warehouse, dbt models, and a per-technology demand index",
                  "accumulated daily because no public source has one.")]
           if _authored(me) else []),
-        _para(_about(me), f"looking for a {_seeking(me)} term." if _seeking(me)
-              else "getting in touch.",
+        _para(_intro(me) or "Getting in touch because it seemed worth asking.",
               "Rather than a resume, I'd value your opinion: does this match how",
               f"hiring actually looks from inside {company}?"),
         *([me["name"]] if me.get("name") else []),

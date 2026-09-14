@@ -49,8 +49,12 @@ class Drafts(BaseModel):
     followup: str = Field(description="A short follow-up message, roughly 120 words.")
 
 
-SYSTEM_PROMPT = """You write short outreach messages for a student who maintains a
-public dataset on data-engineering hiring.
+SYSTEM_PROMPT = """You write short outreach messages for somebody reaching out to a
+company, citing a public dataset on data-engineering hiring.
+
+The sender is described below in their own words. Use those words. They may be a
+student, they may not be; do not call them a student, assume a degree, a term, or
+an internship unless what they wrote says so.
 
 THE RULES, in order. They are not style preferences; a message that breaks one is
 discarded.
@@ -104,11 +108,24 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
          "that they built, maintain or run it."),
         "",
         "THE SENDER:",
-        f"  name: {sender.get('name', '(unnamed - do not invent one)')}",
-        f"  {sender.get('program', '')} student at {sender.get('school', '')}",
-        f"  looking for a {sender.get('term', '')} {sender.get('role', '')} term",
-        "  built: daily ingestion from company career boards into a warehouse,",
-        "         dbt models, and a per-technology demand index accumulated daily",
+        f"  name: {sender.get('name') or '(unnamed - do not invent one)'}",
+        # Labels rather than a sentence, so the model is handed facts to phrase
+        # instead of a phrasing to copy. The old form read "{program} student at
+        # {school}", which put the word "student" in front of whatever the sender
+        # typed - and they had typed "Ai Engineer". A blank line is left out
+        # entirely rather than sent as an empty label, because an empty label
+        # invites the model to fill it.
+        *([f"  what they do: {sender['program'].strip()}"]
+          if sender.get("program", "").strip() else []),
+        *([f"  where: {sender['school'].strip()}"]
+          if sender.get("school", "").strip() else []),
+        *([f"  what they are looking for: {sender['term'].strip()}"]
+          if sender.get("term", "").strip() else []),
+        *([f"  role of interest: {sender['role'].strip()}"]
+          if sender.get("role", "").strip() else []),
+        *(["  built: daily ingestion from company career boards into a warehouse,",
+           "         dbt models, and a per-technology demand index accumulated daily"]
+          if not sender.get("_borrowed") else []),
         "",
         "BUDGETS, which are checked and are not advisory:",
         f"  email: at most {EMAIL_MAX_WORDS} words, and aim for about 105",

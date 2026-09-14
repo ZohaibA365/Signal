@@ -204,6 +204,105 @@ def execute(cur, tool: str, args: dict, context: DraftingContext, client, draft_
                           data={"args": args})
 
 
+def _apply_tool(cur, name: str, arguments: dict, context: DraftingContext, client,
+                draft_model: str, state: dict, step: int, record: dict, emit) -> ToolResult:
+    """
+    Run one tool and fold its outcome into the record.
+
+    Extracted so the model-driven loop and the fixed sequence below cannot drift
+    apart. What a tool does, what gets logged about it, and what the console is
+    told are all properties of the tool - not of who decided to call it - and the
+    one thing worse than a fallback is a fallback that behaves differently.
+    """
+    started = time.time()
+    result = execute(cur, name, arguments, context, client, draft_model,
+                     state.get("last_draft", {}))
+    entry = {
+        "step": step, "tool": name, "arguments": arguments,
+        "ok": result.ok, "rejected": result.rejected, "detail": result.detail,
+        "ms": int((time.time() - started) * 1000),
+        "at": datetime.now(UTC).isoformat(),
+        # The drafts themselves are stored on the tracker row; keeping the
+        # full text in every log entry as well would triple the file.
+        "data": {k: v for k, v in result.data.items() if k != "drafts"},
+    }
+    record["steps"].append(entry)
+    emit(entry)
+    level = log.info if result.ok else log.warning
+    level("    %-26s %-9s %s", name,
+          "ok" if result.ok else ("rejected" if result.rejected else "failed"),
+          result.detail)
+
+    if name == "draft_outreach_email" and result.ok:
+        state["last_draft"] = result.data
+    if name == "update_tracker_status" and result.ok:
+        record["drafted"] = True
+        record["outcome"] = "email_drafted"
+        record["draft_source"] = state.get("last_draft", {}).get("source")
+        record["verification"] = state.get("last_draft", {}).get("verification")
+    return result
+
+
+def run_fixed_sequence(cur, job: dict, context: DraftingContext, client,
+                       draft_model: str, on_event=None) -> dict:
+    """
+    The three tools in the only order they make sense, with no model deciding.
+
+    This exists because the model that drives the loop is a dependency like any
+    other, and it can be unreachable while everything else - the warehouse, the
+    validators, the verifier, the drafting model - is fine. When that happened the
+    whole run died and the visitor was told it "could not be completed", even
+    though every part needed to produce their email was working.
+
+    So: check whether this company was contacted, draft if allowed, record the
+    outcome. That is what the model picks on every successful run anyway, which is
+    what makes it a safe fallback rather than a second behaviour - the planning is
+    the part being skipped, and on a single known posting there is nothing to plan.
+    Each tool still enforces its own rails, because they are in the tools.
+
+    Not used from the command line, where a failed model call should be visible
+    rather than papered over.
+    """
+    def emit(payload: dict) -> None:
+        if on_event is None:
+            return
+        try:
+            on_event(payload)
+        except Exception:                                            # noqa: BLE001
+            pass
+
+    record = {"job_id": job["job_id"], "company": job["company"],
+              "title": job["title"], "fit_score": job["fit_score"],
+              "steps": [], "outcome": None, "drafted": False,
+              "planner": "fixed sequence"}
+    state: dict = {}
+
+    check = _apply_tool(cur, "check_application_status", {"job_id": job["job_id"]},
+                        context, client, draft_model, state, 1, record, emit)
+    # The rail's own verdict, honoured exactly as the model would have to honour
+    # it. A posting already contacted is not drafted for here either.
+    if not check.ok or not check.data.get("eligible_to_draft"):
+        record["outcome"] = record["outcome"] or "finished"
+        emit({"kind": "outcome", "record": record})
+        return record
+
+    draft = _apply_tool(cur, "draft_outreach_email",
+                        {"job_id": job["job_id"], "company": job["company"]},
+                        context, client, draft_model, state, 2, record, emit)
+    if not draft.ok:
+        record["outcome"] = record["outcome"] or "finished"
+        emit({"kind": "outcome", "record": record})
+        return record
+
+    _apply_tool(cur, "update_tracker_status",
+                {"job_id": job["job_id"], "new_status": "email_drafted",
+                 "notes": f"Drafted for {job['company']} without the planner."},
+                context, client, draft_model, state, 3, record, emit)
+    record["outcome"] = record["outcome"] or "finished"
+    emit({"kind": "outcome", "record": record})
+    return record
+
+
 def process_job(cur, job: dict, context: DraftingContext, client, model: str,
                 draft_model: str, max_steps: int, on_event=None) -> dict:
     """
@@ -232,6 +331,8 @@ def process_job(cur, job: dict, context: DraftingContext, client, model: str,
                  f"job_id: {job['job_id']}\ncompany (for reference only, verify it): "
                  f"{job['company']}\ntitle: {job['title']}"}]
     last_draft: dict = {}
+    # Carried across steps for _apply_tool, which is shared with run_fixed_sequence.
+    state: dict = {}
 
     for step in range(1, max_steps + 1):
         response = client.messages.create(
@@ -251,32 +352,10 @@ def process_job(cur, job: dict, context: DraftingContext, client, model: str,
         for block in response.content:
             if getattr(block, "type", "") != "tool_use":
                 continue
-            started = time.time()
-            result = execute(cur, block.name, dict(block.input or {}),
-                             context, client, draft_model, last_draft)
-            entry = {
-                "step": step, "tool": block.name, "arguments": dict(block.input or {}),
-                "ok": result.ok, "rejected": result.rejected, "detail": result.detail,
-                "ms": int((time.time() - started) * 1000),
-                "at": datetime.now(UTC).isoformat(),
-                # The drafts themselves are stored on the tracker row; keeping the
-                # full text in every log entry as well would triple the file.
-                "data": {k: v for k, v in result.data.items() if k != "drafts"},
-            }
-            record["steps"].append(entry)
-            emit(entry)
-            level = log.info if result.ok else log.warning
-            level("    %-26s %-9s %s", block.name,
-                  "ok" if result.ok else ("rejected" if result.rejected else "failed"),
-                  result.detail)
-
-            if block.name == "draft_outreach_email" and result.ok:
-                last_draft = result.data
-            if block.name == "update_tracker_status" and result.ok:
-                record["drafted"] = True
-                record["outcome"] = "email_drafted"
-                record["draft_source"] = last_draft.get("source")
-                record["verification"] = last_draft.get("verification")
+            result = _apply_tool(cur, block.name, dict(block.input or {}),
+                                 context, client, draft_model, state, step,
+                                 record, emit)
+            last_draft = state.get("last_draft", last_draft)
 
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": json.dumps(result.data, default=str)})

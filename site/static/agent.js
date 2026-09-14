@@ -75,6 +75,10 @@
       return;
     }
     if (ev.kind === "resolved") { line("say", "·", ev.note || ""); return; }
+    /* A plain remark from the service - not a step, not a failure. Without this it
+       fell through to the step branch, where an absent status renders as a cross,
+       so an explanatory note read as something going wrong. */
+    if (ev.kind === "note") { line("say", "·", ev.note || ""); return; }
     if (ev.kind === "unavailable") {
       // Not a failure: the agent declining to invent something about a company it
       // has no data on is the system working, so it reads as an answer.
