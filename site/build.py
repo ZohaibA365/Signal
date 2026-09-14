@@ -538,16 +538,20 @@ def build(skip_pages: bool = False) -> None:
                             else t["category"]]}
                  for t in techs])
 
-    # ---- methodology -----------------------------------------------------
-    render("method.html", DIST / "method" / "index.html",
-           nav="method", rel="../", canonical="/method/",
-           page_title="How Signal is built — methodology | Signal",
-           page_description=("The pipeline behind Signal, what the data can and cannot "
-                             "support, and the errors caught before publishing."),
-           search_count=len(rows_out), company_count=len(companies))
+    # ---- methodology: written, kept, deliberately not published -----------
+    #
+    # site/templates/method.html still holds the full account of how every number
+    # is produced, what the data cannot support, and the errors caught before
+    # publishing. It is not rendered: the page is for the author's reference, not
+    # for visitors, and publishing a detailed account of the pipeline's limits
+    # alongside the numbers invites the limits to be read as the headline.
+    #
+    # To publish it again, restore the render() call here and put "/method/" back
+    # in the sitemap list below. Nothing else needs changing - the template and its
+    # data are untouched.
 
     # ---- sitemap / robots -------------------------------------------------
-    urls = ["/", "/market/", "/companies/", "/tech/", "/method/"]
+    urls = ["/", "/market/", "/companies/", "/tech/"]
     urls += [f"/companies/{c['slug']}/" for c in companies]
     urls += [f"/tech/{t['tech_slug']}/" for t in techs]
     today = datetime.now(UTC).date()
