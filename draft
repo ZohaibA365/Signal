@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#
+# The outreach agent, in one command that cannot be typed wrong.
+#
+# Every failure this removes was a real one. Typing `python` gets "command not
+# found", because macOS ships python3. Typing `python3` gets a ModuleNotFoundError,
+# because the dependencies live in .venv. Running from anywhere but the repository
+# root gets "No such file or directory". Three cryptic errors guarding a tool that
+# works fine, which amounts to a tool that does not work.
+#
+# This finds its own directory and its own interpreter, so it runs from anywhere.
+#
+#   ./draft              draft for the next five roles, then open them
+#   ./draft 10           draft for ten
+#   ./draft show         open the drafts again without drafting more
+#   ./draft text         print them in the terminal instead
+#   ./draft sent <id>    record that you sent one
+#   ./draft status       what is waiting
+set -uo pipefail
+
+cd "$(dirname "$0")" || exit 1
+PY=".venv/bin/python"
+
+if [ ! -x "$PY" ]; then
+    echo "The project's Python is missing at $PWD/$PY"
+    echo "Create it with:  python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt"
+    exit 1
+fi
+if [ ! -f .env ]; then
+    echo "No .env file in $PWD - the agent needs the database and API keys from it."
+    exit 1
+fi
+
+command="${1:-5}"
+case "$command" in
+    ''|*[0-9]*)
+        if [[ "$command" =~ ^[0-9]+$ ]]; then
+            count="$command"
+        else
+            echo "Usage: ./draft [N | show | text | sent <id> | status]"; exit 1
+        fi
+        echo "Drafting for up to $count role(s). Nothing is sent - this writes drafts only."
+        "$PY" agent/agent.py --limit "$count" || exit 1
+        echo
+        "$PY" agent/show_drafts.py --html
+        ;;
+    show)
+        "$PY" agent/show_drafts.py --html "${2:-drafts.html}"
+        ;;
+    text)
+        "$PY" agent/show_drafts.py --variant "${2:-email}"
+        ;;
+    sent)
+        if [ $# -lt 2 ]; then
+            echo "Which one? Copy the id printed under a draft:"
+            echo "  ./draft sent company_board:workday:R_1509826"
+            exit 1
+        fi
+        "$PY" agent/show_drafts.py --mark-sent "$2"
+        ;;
+    status)
+        "$PY" - <<'PYEOF'
+import sys
+sys.path.insert(0, "storage")
+from dotenv import load_dotenv
+# An explicit path: python-dotenv locates .env by walking up from the CALLING
+# file, and a script piped in on stdin has no file to walk up from - it raises
+# an assertion inside find_dotenv. The shell has already moved to the repo root.
+load_dotenv(".env")
+from db import connect
+conn = connect(autocommit=True)
+cur = conn.cursor()
+cur.execute("select status, count(*) from outreach_tracker group by 1 order by 2 desc")
+rows = cur.fetchall()
+print("Your outreach so far:")
+for status, n in rows or [("nothing yet", 0)]:
+    print(f"  {status:<16} {n}")
+cur.execute("""
+    select count(*) from apply_queue a
+    left join outreach_tracker t on t.source = a.source and t.job_id = a.job_id
+    where a.fit_score >= 75 and a.link_tier = 'direct'
+      and coalesce(t.status, 'not_contacted') = 'not_contacted'
+""")
+print(f"\n  {cur.fetchone()[0]} role(s) scored 75+ with no draft yet.")
+print("  Draft for the next five with:  ./draft")
+conn.close()
+PYEOF
+        ;;
+    *)
+        echo "Usage: ./draft [N | show | text | sent <id> | status]"
+        exit 1
+        ;;
+esac

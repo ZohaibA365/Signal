@@ -3,10 +3,31 @@
 Walks high-scoring postings, drafts outreach for each, records the result. Uses
 Claude's tool-use API, with three tools and no way to send anything.
 
+## Using it
+
+From anywhere, including a fresh Terminal window:
+
+```bash
+~/Documents/GitHub/Signal/draft            # draft for the next 5, then open them
+~/Documents/GitHub/Signal/draft status     # what is waiting
+~/Documents/GitHub/Signal/draft sent <id>  # record that you sent one
+```
+
+`./draft` exists because the direct commands have three ways to fail and all of
+them look like the tool is broken: `python` is not on macOS, `python3` lacks the
+dependencies because they live in `.venv`, and running from the wrong directory
+finds nothing. The script locates its own directory and its own interpreter.
+
+It opens `drafts.html`, a local file with a copy button per draft, because copying
+out of a terminal is miserable. That file is gitignored: it is unsent mail.
+
+### The underlying commands
+
 ```bash
 python agent/agent.py --dry-run --limit 3 --no-write   # no API call, no writes
 python agent/agent.py --limit 1                        # one posting, for real
 python agent/agent.py --job-id company_board:lever:abc123
+python agent/show_drafts.py --html                     # the page
 pytest agent/tests -q                                  # the safety rails
 ```
 
