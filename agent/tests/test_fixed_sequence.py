@@ -49,7 +49,6 @@ JOB_ID = "company_board:workday:R_1509826"
 @pytest.fixture(autouse=True)
 def _stub_compose(monkeypatch):
     monkeypatch.setattr(tools_mod, "drafts_for", lambda *a, **k: dict(TEMPLATE))
-    monkeypatch.setattr(tools_mod, "company_url", lambda c: TEMPLATE["url"])
 
 
 def job() -> dict:

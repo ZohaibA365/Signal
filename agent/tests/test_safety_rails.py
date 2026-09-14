@@ -96,6 +96,9 @@ class FakeContext:
     peers: dict = {}
     market: dict = {}
     days = 90
+    # These rail scenarios are the owner's own command-line runs. The visitor path
+    # has its own tests; what is exercised here is the loop, not the voice.
+    owner = True
     sender = {"school": "Waterloo", "program": "Management Engineering",
               "term": "Winter 2027", "role": "Data Engineering"}
 
@@ -116,7 +119,6 @@ TEMPLATE = {
 def _stub_compose(monkeypatch):
     """drafts_for talks to Postgres; the scenarios are about the rails, not SQL."""
     monkeypatch.setattr(tools_mod, "drafts_for", lambda *a, **k: dict(TEMPLATE))
-    monkeypatch.setattr(tools_mod, "company_url", lambda c: TEMPLATE["url"])
 
 
 def run(script, status="not_contacted", exists=True, max_steps=8, client=None):

@@ -411,7 +411,9 @@ def main() -> None:
                 log.warning("the batch repeats companies, so drafts will be "
                             "near-identical within each one")
 
-            context = DraftingContext(cur, companies)
+            # The command line is the owner drafting his own outreach, and it is
+            # the only caller that says so.
+            context = DraftingContext(cur, companies, owner=True)
             client = StubClient() if args.dry_run else _real_client()
 
             records = []

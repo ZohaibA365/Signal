@@ -60,9 +60,8 @@ THE RULES, in order. They are not style preferences; a message that breaks one i
 discarded.
 
 1. Open with something true and specific about THEM, not about the sender.
-2. Say where the observation comes from, in one line. If the sender built the
-   dataset, say so and give the link. If they did not, say they were reading a
-   public dataset and give no link - see the note on the sender below.
+2. Say where the observation comes from, in one line, exactly as the note on the
+   sender below tells you to. If no link is given to you, there is no link to use.
 3. Ask for their opinion, not their time. "Does this hold up?" is answerable in one
    line; "would you be open to a chat" asks a stranger for a calendar slot.
 4. Mention the role last, as interest rather than an application. Never a
@@ -80,8 +79,9 @@ This is checked mechanically against the observations after you answer. A draft
 containing any unsupported number is thrown away, so inventing one costs the
 message rather than improving it.
 
-If you are told to include the link, use only the exact one given, and put a space
-after it rather than running punctuation straight onto the end.
+If a link is given to you, use only that exact one, and put a space after it rather
+than running punctuation straight onto the end. If none is given, write no URL of
+any kind.
 
 Name the company in every one of the three variants. "Your team" reads as though it
 could be addressed to anyone, and each variant is checked on its own.
@@ -91,10 +91,22 @@ is a stranger to them, and the message works because it is useful, not because i
 pretends to be familiar."""
 
 
-def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
+class TemplateFailedVerification(RuntimeError):
+    """The deterministic draft failed its own checks. There is no fallback below it."""
+
+
+def _prompt(company: str, url: str, insights: list[dict], sender: dict, *,
+            owner: bool) -> str:
     from compose import CONNECTION_LIMIT
 
-    lines = [f"COMPANY: {company}", f"LINK TO THE COMPANY'S PAGE: {url}", "", "OBSERVATIONS:"]
+    lines = [f"COMPANY: {company}"]
+    # The link is in the prompt only when the sender may send it. It used to be
+    # here unconditionally and kept out of the output by a check afterwards, which
+    # meant every visitor's run carried the owner's URL in the model's context and
+    # relied on the model declining to use it.
+    if owner:
+        lines.append(f"LINK TO THE COMPANY'S PAGE: {url}")
+    lines += ["", "OBSERVATIONS:"]
     for i, insight in enumerate(insights, 1):
         lines.append(f"{i}. {insight['text']}")
         if insight.get("evidence"):
@@ -105,7 +117,7 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
         # pipeline I built" in the name of somebody who did not build it is a lie
         # in a message they may actually send.
         ("THE SENDER built and maintains this dataset."
-         if not sender.get("_borrowed") else
+         if owner else
          "THE SENDER did NOT build this dataset - they are citing it. Never write "
          "that they built, maintain or run it, and do NOT include the link or any "
          "other URL: it is somebody else's project and the sender cannot offer it "
@@ -129,7 +141,7 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
           if sender.get("role", "").strip() else []),
         *(["  built: daily ingestion from company career boards into a warehouse,",
            "         dbt models, and a per-technology demand index accumulated daily"]
-          if not sender.get("_borrowed") else []),
+          if owner else []),
         "",
         "BUDGETS, which are checked and are not advisory:",
         f"  email: at most {EMAIL_MAX_WORDS} words, and aim for about 105",
@@ -142,15 +154,19 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
 
 
 def verify_all(drafts: dict, company: str, url: str, insights: list[dict],
-               sender: dict) -> dict[str, Verification]:
-    """Verify each variant against its own channel budget."""
+               sender: dict, *, owner: bool) -> dict[str, Verification]:
+    """
+    Verify each variant against its own channel budget.
+
+    `owner` is passed in rather than read off the sender. It used to be inferred
+    from a `_borrowed` key, so a sender that simply did not carry the key - which
+    is what an empty form produced - was verified as though it were the owner's,
+    switching off the one rail that checks for the owner's voice.
+    """
     from compose import CONNECTION_LIMIT
 
-    # A borrowed sender is somebody using the public page rather than the dataset's
-    # owner, and their draft may not claim to have built it.
-    borrowed = bool(sender.get("_borrowed"))
     common = {"company": company, "url": url, "insights": insights,
-              "sender": sender, "borrowed": borrowed}
+              "sender": sender, "borrowed": not owner}
     return {
         "email": verify_draft(drafts.get("email", ""), max_words=EMAIL_MAX_WORDS,
                               **common),
@@ -162,7 +178,7 @@ def verify_all(drafts: dict, company: str, url: str, insights: list[dict],
 
 
 def generate(client, company: str, url: str, insights: list[dict], sender: dict,
-             model: str) -> tuple[dict, object]:
+             model: str, *, owner: bool) -> tuple[dict, object]:
     """Ask the model for three variants. Returns (drafts, usage)."""
     response = client.messages.parse(
         model=model,
@@ -171,7 +187,8 @@ def generate(client, company: str, url: str, insights: list[dict], sender: dict,
                  # Stable across every company, so it caches after the first call -
                  # the same trick ai_layer/enrich.py uses.
                  "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": _prompt(company, url, insights, sender)}],
+        messages=[{"role": "user",
+                   "content": _prompt(company, url, insights, sender, owner=owner)}],
         output_format=Drafts,
     )
     parsed = response.parsed_output
@@ -179,35 +196,54 @@ def generate(client, company: str, url: str, insights: list[dict], sender: dict,
              "followup": parsed.followup}, response.usage)
 
 
-def drafts_with_fallback(client, template_drafts: dict, sender: dict, model: str
-                         ) -> tuple[dict, str, dict, object | None]:
+def drafts_with_fallback(client, template_drafts: dict, sender: dict, model: str,
+                         *, owner: bool) -> tuple[dict, str, dict, object | None]:
     """
     Model drafts if they verify, the template's if they do not.
 
     `template_drafts` is what compose.drafts_for() returned - it carries the
-    insights, the url, and a deterministic draft of each variant, so the fallback
-    costs nothing and is always available.
+    insights, the url when there is one to carry, and a deterministic draft of each
+    variant, so the fallback costs nothing and is always available.
 
-    Returns (drafts, source, verification_report, usage). Verification runs on the
-    model's output only: the template's output is correct by construction, which is
-    the entire reason it is the fallback.
+    Returns (drafts, source, verification_report, usage).
+
+    The template is verified too on a visitor's run. It was not, on the grounds
+    that it is correct by construction - which was true of the arithmetic and false
+    of the voice: the template was itself the thing putting the owner's words in a
+    visitor's message, and being the fallback meant no check ever looked at it. The
+    owner's own template is still trusted, because there is nothing to catch.
     """
     company = template_drafts["company"]
-    url = template_drafts["url"]
+    url = template_drafts.get("url", "")
     insights = template_drafts["insights"]
     template = {k: template_drafts[k] for k in ("email", "connection", "followup")}
 
+    def checked_template(report: dict) -> tuple[dict, str, dict, None]:
+        if not owner:
+            checks = verify_all(template, company, url, insights, sender, owner=owner)
+            report = {**report, "template": {k: v.as_dict() for k, v in checks.items()}}
+            failed = [k for k, v in checks.items() if not v.passed]
+            if failed:
+                # Loud, and not swallowed. There is no further fallback to take -
+                # this IS the fallback - so the run fails rather than sending a
+                # message that just failed its own check.
+                raise TemplateFailedVerification(
+                    f"the deterministic draft did not verify: {failed} "
+                    f"{[f for v in checks.values() for f in v.failures]}")
+        return template, "template", report, None
+
     if client is None:
-        return template, "template", {"skipped": "no model client"}, None
+        return checked_template({"skipped": "no model client"})
 
     try:
-        drafts, usage = generate(client, company, url, insights, sender, model)
+        drafts, usage = generate(client, company, url, insights, sender, model,
+                                 owner=owner)
     except Exception as exc:                                        # noqa: BLE001
         # A model failure is not a run failure. The deterministic draft is right
         # there, so the batch continues with a logged reason.
-        return template, "template", {"error": f"{type(exc).__name__}: {exc}"[:200]}, None
+        return checked_template({"error": f"{type(exc).__name__}: {exc}"[:200]})
 
-    checks = verify_all(drafts, company, url, insights, sender)
+    checks = verify_all(drafts, company, url, insights, sender, owner=owner)
     report = {name: v.as_dict() for name, v in checks.items()}
     if all(v.passed for v in checks.values()):
         return drafts, "model", report, usage
@@ -217,6 +253,7 @@ def drafts_with_fallback(client, template_drafts: dict, sender: dict, model: str
     # it there is no way to tell a hallucination from a verifier that is too
     # strict. It is marked clearly so nothing downstream mistakes it for a draft.
     report["rejected_draft"] = drafts
+    _ = usage
 
     # All-or-nothing per posting, deliberately. Mixing a verified model email with
     # a template follow-up would make "who wrote this" unanswerable per message,

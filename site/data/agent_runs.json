@@ -18,7 +18,7 @@
           "arguments": {
             "job_id": "company_board:greenhouse:5226940007"
           },
-          "ms": 38
+          "ms": 40
         },
         {
           "kind": "step",
@@ -31,7 +31,7 @@
             "job_id": "company_board:greenhouse:5226940007",
             "company": "Anduril Industries"
           },
-          "ms": 5202
+          "ms": 4250
         },
         {
           "kind": "step",
@@ -43,17 +43,16 @@
           "arguments": {
             "job_id": "company_board:greenhouse:5226940007",
             "new_status": "email_drafted",
-            "notes": "Outreach email drafted for Algorithm Developer, Tracking Systems role at Anduril Industries."
+            "notes": "Outreach drafted for Algorithm Developer, Tracking Systems role at Anduril Industries."
           },
-          "ms": 52
+          "ms": 80
         },
         {
           "kind": "done",
           "note": "Done. Draft written by the template, every figure in it checked against the warehouse.",
           "outcome": "email_drafted"
         }
-      ],
-      "draft": "Subject: Anduril Industries' hiring, from the data side\n\nHi,\n\nI was looking through a public dataset on data-engineering hiring, and Anduril Industries stood out: they mention computer_vision in 99% of their postings, about 74.3x the rate across the companies it tracks.\n\nGetting in touch because it seemed worth asking. Rather than a resume, I'd value your opinion: does this match how hiring actually looks from inside Anduril Industries?"
+      ]
     },
     {
       "id": "already_contacted",

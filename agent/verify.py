@@ -169,9 +169,9 @@ def check_numbers(text: str, insights: list[dict], sender: dict | None = None) -
 
 
 def verify_draft(text: str, *, company: str, url: str, insights: list[dict],
+                 borrowed: bool,
                  sender: dict | None = None, max_chars: int | None = None,
-                 max_words: int | None = None,
-                 borrowed: bool = False) -> Verification:
+                 max_words: int | None = None) -> Verification:
     """
     Run every check against one draft. Fails closed: any failure means reject.
 

@@ -23,7 +23,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _sub in ("storage", "outreach", "agent"):
     sys.path.insert(0, os.path.join(_ROOT, _sub))
 
-from compose import _sender, baseline_companies, company_url, drafts_for  # noqa: E402
+from compose import _sender, baseline_companies, drafts_for  # noqa: E402
 from insights import collection_days, load_market, peer_stats  # noqa: E402
 from schemas import (  # noqa: E402
     ToolResult,
@@ -58,14 +58,21 @@ class DraftingContext:
     the batch shares it.
     """
 
-    def __init__(self, cur, companies: list[str], sender: dict | None = None):
+    def __init__(self, cur, companies: list[str], sender: dict | None = None,
+                 *, owner: bool = False):
         self.market = load_market(cur)
         self.peers = peer_stats(cur, baseline_companies(cur, companies))
         self.days = collection_days(cur)
-        # Whose message this is. None means the configured profile, which is what
-        # every command-line run wants; the public page passes the visitor's own
-        # details so the draft is theirs rather than a sample of somebody else's.
-        self.sender = sender or _sender()
+        # Whose message this is, stated rather than guessed. This used to read
+        # `sender or _sender()`, which inferred it: a falsy sender - None, or the
+        # empty dict a visitor who filled in nothing produces - silently became
+        # the OWNER's profile, and every check downstream that asks "is this the
+        # owner" then answered yes. A visitor was handed the owner's email, his
+        # school, and a link to his project, with no bug anywhere and no rail
+        # firing. The default is now the safe answer, and the command line says
+        # owner=True out loud.
+        self.owner = owner
+        self.sender = sender or ({} if not owner else _sender())
 
 
 # ---------------------------------------------------------------------- lookup
@@ -152,7 +159,7 @@ def draft_outreach_email(cur, job_id: str, company: str, context: DraftingContex
                           detail=status.data["reason"], data={"job_id": job_id})
 
     template = drafts_for(cur, stored_company, context.peers, context.market,
-                          context.days, context.sender)
+                          context.days, context.sender, owner=context.owner)
     if template.get("error"):
         return ToolResult("draft_outreach_email", False,
                           detail=f"cannot draft for {stored_company}: {template['error']}",
@@ -161,14 +168,18 @@ def draft_outreach_email(cur, job_id: str, company: str, context: DraftingContex
     from draft import drafts_with_fallback
 
     drafts, source, verification, usage = drafts_with_fallback(
-        client, template, context.sender, model)
+        client, template, context.sender, model, owner=context.owner)
 
     return ToolResult(
         "draft_outreach_email", True,
         detail=f"{len(template['insights'])} insight(s), drafted by the {source}",
         data={
             "job_id": job_id, "company": stored_company,
-            "url": company_url(stored_company),
+            # Only when it is the owner's to send. On a visitor's run the URL is
+            # never computed, so it cannot reach the tool result, the planner's
+            # context, or the drafting prompt - rather than being computed and
+            # then filtered out of the text afterwards.
+            **({"url": template["url"]} if context.owner else {}),
             "insight_count": len(template["insights"]),
             "source": source, "verification": verification, "drafts": drafts,
             "usage": {"input": getattr(usage, "input_tokens", 0),

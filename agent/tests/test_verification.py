@@ -47,6 +47,15 @@ GROUNDED = (
 
 
 def verify(text, **kw):
+    """
+    Verify as the OWNER unless a test says otherwise.
+
+    Stated here rather than defaulted in verify_draft. The real signature requires
+    `borrowed` from every caller, because defaulting it was how a visitor's draft
+    came to be checked under the owner's rules: the flag was absent, absence read
+    as "this is the owner", and the authorship rail switched itself off.
+    """
+    kw.setdefault("borrowed", False)
     return verify_draft(text, company="TD Bank", url=URL, insights=INSIGHTS,
                         sender=SENDER, **kw)
 

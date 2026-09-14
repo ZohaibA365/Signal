@@ -42,9 +42,26 @@ def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def check_and_reserve(cur, client: str) -> tuple[bool, str]:
+# Runs that never call a model. A deterministic draft costs one database query, so
+# this is not a spending control - it is only here so a script cannot sit on the
+# button. It is deliberately far above anything a person does by hand.
+TEMPLATE_RUNS_PER_CLIENT = int(os.getenv("AGENT_TEMPLATE_RUNS_PER_IP", "60"))
+
+
+def check_and_reserve(cur, client: str) -> tuple[str, str]:
     """
-    Decide whether this run may happen, and account for it if so.
+    Decide how this run may happen, and account for it if so.
+
+    Returns "model", "template" or "refused", with a sentence for the page.
+
+    It used to return yes or no, and "no" meant the visitor was shown a recording
+    of somebody else's run instead of an email of their own. That conflated two
+    different limits. Both of these caps exist to bound what the MODEL costs; the
+    deterministic draft needs no model at all, only a query against the warehouse.
+    So being over budget does not mean there is nothing to write - it means the
+    sentences are assembled rather than generated, from the same verified figures,
+    with the visitor's own details in them. Only a database that cannot be reached
+    leaves us with nothing true to say.
 
     One statement per counter, each an upsert that returns the new total, so two
     requests arriving together cannot both read the old value and both proceed.
@@ -62,9 +79,7 @@ def check_and_reserve(cur, client: str) -> tuple[bool, str]:
     """, (today, TOTAL, ESTIMATED_RUN_USD))
     _, spent = cur.fetchone()
 
-    if float(spent) > DAILY_BUDGET_USD:
-        return False, ("This has hit its spending limit for today. "
-                       "A recorded run is shown instead - it is a real one.")
+    over_budget = float(spent) > DAILY_BUDGET_USD
 
     cur.execute("""
         INSERT INTO demo.usage_ledger (day, client, runs, cost_usd)
@@ -75,11 +90,18 @@ def check_and_reserve(cur, client: str) -> tuple[bool, str]:
     """, (today, client))
     runs = cur.fetchone()[0]
 
-    if runs > RUNS_PER_CLIENT:
-        return False, (f"You have run this {RUNS_PER_CLIENT} times today, which is "
-                       f"the limit. A recorded run is shown instead.")
+    if runs > TEMPLATE_RUNS_PER_CLIENT:
+        return "refused", (f"You have run this {TEMPLATE_RUNS_PER_CLIENT} times "
+                           f"today, which is the limit. Try again tomorrow.")
 
-    return True, ""
+    if over_budget or runs > RUNS_PER_CLIENT:
+        # Still a real run against real data, and still the visitor's own details.
+        # The model is what is unavailable, not the warehouse.
+        return "template", ("Today's model budget is used up, so the wording is "
+                            "assembled rather than written - the figures are the "
+                            "same and they are checked the same way.")
+
+    return "model", ""
 
 
 def refund(cur, client: str) -> None:

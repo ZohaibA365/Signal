@@ -106,7 +106,21 @@ def create(cur, password: str) -> None:
     # Said out loud rather than assumed: no write anywhere in public, ever.
     cur.execute(f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES "
                 f"IN SCHEMA public FROM {DEMO_ROLE}")
-    log.info("granted read on %s warehouse table(s), write on demo only", len(READABLE))
+
+    # A grant belongs to the table, not to the name, so dropping and recreating a
+    # table takes its grants with it - and that is exactly what dbt does to the
+    # marts every night. The public page therefore worked all day and began
+    # answering "permission denied for table dim_company" the moment the pipeline
+    # rebuilt it, with nothing in the service having changed.
+    #
+    # Default privileges close it: they apply to tables that do not exist yet,
+    # granted for the role that creates them, so tomorrow's dim_company is readable
+    # the moment dbt makes it. Tied to the current user because default privileges
+    # are per-creator, and this runs as the same owner dbt does.
+    cur.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                f"GRANT SELECT ON TABLES TO {DEMO_ROLE}")
+    log.info("granted read on %s warehouse table(s), write on demo only, and on "
+             "public tables created from now on", len(READABLE))
 
 
 def seed(cur) -> None:

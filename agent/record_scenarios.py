@@ -8,8 +8,10 @@ running it, not hand-written fixtures.
 
 Two kinds, and the page labels them differently because they are different:
 
-  - The happy path is lifted from an actual run log in agent/logs/. A real posting,
-    a real model call, a real draft.
+  - The happy path is produced by running the real agent, against a real posting,
+    as an anonymous visitor. It carries no email: a recording plays only when the
+    database cannot be reached, and a message written for somebody else is the one
+    thing this page must never show.
   - The rail scenarios are produced here by running the real loop, the real
     validators and the real verifier against a scripted model and a stub cursor -
     the same harness agent/tests uses. The rails firing are genuine; the model
@@ -23,7 +25,6 @@ visitor being shown a safety mechanism has to be able to tell which part was rea
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import sys
@@ -211,7 +212,14 @@ def from_visitor_run() -> dict | None:
                 return None
 
             source, _, job_id = job["job_id"].partition(":")
-            cur.execute("UPDATE demo.outreach_tracker SET status = 'not_contacted' "
+            # The draft columns go too. Resetting the status alone left the old
+            # text in place, and sandbox.sweep() skips rows already at
+            # not_contacted - so a stale draft written by an older build would sit
+            # there indefinitely, one coalesce away from being streamed again.
+            cur.execute("UPDATE demo.outreach_tracker "
+                        "SET status = 'not_contacted', draft_email = NULL, "
+                        "    draft_connection = NULL, draft_followup = NULL, "
+                        "    draft_source = NULL "
                         "WHERE source = %s AND job_id = %s", (source, job_id))
 
             client = anthropic.Anthropic(
@@ -226,10 +234,6 @@ def from_visitor_run() -> dict | None:
                 print(f"  the recording run did not draft ({record.get('outcome')})")
                 return None
 
-            cur.execute("SELECT draft_email FROM demo.outreach_tracker "
-                        "WHERE source = %s AND job_id = %s", (source, job_id))
-            row = cur.fetchone()
-
         scenario = {
             "id": "real", "staged": False,
             "label": f"{job['company']} — a real run",
@@ -237,46 +241,20 @@ def from_visitor_run() -> dict | None:
             "note": "An actual run against a real posting, checked against the warehouse.",
             "events": as_events(record),
         }
-        # Without this the console finishes by announcing a draft and then shows
-        # nothing, which reads as a broken page rather than a recording. agent.js
-        # already types out scenario.draft; it was never given one.
-        if row and row[0]:
-            scenario["draft"] = row[0]
+        # Deliberately no draft. A recording plays only when the database cannot
+        # be reached, and an email written for somebody else - at any remove, with
+        # any label - is what made this page feel like it was writing the wrong
+        # person's message. The steps show what the agent does; the email a visitor
+        # gets is written for them or not shown at all.
         return scenario
     finally:
         conn.close()
 
 
-def from_log() -> dict | None:
-    """
-    The previous recording, kept only as a fallback when no live run is possible.
-
-    It is an owner's run, so its draft is deliberately left out: an example email in
-    somebody else's name and voice is worse on this page than no example at all.
-    """
-    logs = sorted(glob.glob(str(ROOT / "agent" / "logs" / "run_*.json")))
-    for path in reversed(logs):
-        with open(path) as fh:
-            data = json.load(fh)
-        if data.get("dry_run"):
-            continue
-        for job in data["jobs"]:
-            if job.get("outcome") == "email_drafted" and job.get("draft_source") == "model":
-                return {
-                    "id": "real", "staged": False,
-                    "label": f"{job['company']} — a real run",
-                    "company": job["company"], "title": job["title"],
-                    "note": "An actual run from the log, model-written and verified.",
-                    "events": as_events(job),
-                }
-    return None
-
-
 def main() -> None:
     scenarios = []
 
-    # A live visitor run first; the old owner's log only if that is impossible.
-    real = from_visitor_run() or from_log()
+    real = from_visitor_run()
     if real:
         scenarios.append(real)
 

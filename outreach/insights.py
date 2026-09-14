@@ -173,7 +173,18 @@ def collection_days(cur) -> int:
 
 
 def build_insights(company: str, facts: dict, peers: dict, market: dict,
-                   days_collected: int = 0) -> list[Insight]:
+                   days_collected: int = 0, voice: str = "owner") -> list[Insight]:
+    """
+    The observations worth putting in a message.
+
+    `voice` decides who the comparison belongs to. Two of these sentences end in
+    "across the companies I track", which is true of the person who keeps the
+    dataset and false of anybody else - and used to be corrected further downstream
+    by a find-and-replace over three hard-coded phrases. That worked until a fourth
+    phrase existed. Said correctly here, there is nothing left to correct.
+    """
+    peer_group = ("the companies I track" if voice == "owner"
+                  else "comparable companies")
     out: list[Insight] = []
     roles, last30, prior30 = facts["roles"], facts["last_30d"], facts["prior_30d"]
 
@@ -237,7 +248,7 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
             comparison = f"{ratio:.1f}x" if ratio >= 1 else f"{1/ratio:.1f}x below"
             out.append(Insight(
                 "peer", "pace_vs_peers",
-                f"that is roughly {comparison} the median pace across the companies I track",
+                f"that is roughly {comparison} the median pace across {peer_group}",
                 {"company_last_30d": last30, "peer_median": peers["median_last_30d"]},
                 strength=80,
             ))
@@ -266,7 +277,7 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
                 out.append(Insight(
                     "peer", "stack_emphasis",
                     f"they mention {nm} in {round(own * 100)}% of their postings, "
-                    f"about {own / peer:.1f}x the rate across the companies I track",
+                    f"about {own / peer:.1f}x the rate across {peer_group}",
                     {"tech": slug, "own_share": round(own, 3), "peer_share": round(peer, 3)},
                     strength=88,
                 ))

@@ -121,16 +121,14 @@
     (function step() {
       if (i >= scenario.events.length) {
         running = false;
-        if (scenario.draft) {
-          /* The recorded draft is a real run made with no sender details at all,
-             so it is an example rather than anybody's message. Saying so is worth
-             a line: the version that showed the author's own email, correctly
-             labelled as his, still read to a visitor as what the tool had written
-             for them. */
-          el.mode.textContent = "Recorded run · an example with no details filled "
-            + "in — run it live and it writes in your words";
-          typeOut(scenario.draft);
-        }
+        /* No email is ever typed out from a recording, whoever it was written
+           for. A recorded run now plays only when the database itself cannot be
+           reached - every other case, the model budget included, still writes the
+           visitor a real email from their own details - and in that state there
+           is nothing true to show them. Showing somebody else's message here,
+           however it was labelled, is what made this page feel broken. */
+        el.mode.textContent = "Recorded run · live drafting is unavailable right "
+          + "now, so no email was written — try again shortly";
         return;
       }
       render(scenario.events[i++]);

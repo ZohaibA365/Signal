@@ -67,38 +67,6 @@ def company_url(company: str) -> str:
     return f"{SITE_URL}/companies/{slugify(company)}/"
 
 
-# Whether the sender is the person who built the dataset, or somebody using it.
-#
-# This is not a wording preference. Three of these templates say "a pipeline I
-# built" and "I build a public dataset", which is true of the owner and a lie in
-# anybody else's name. A stranger using the public page is citing the data, not
-# claiming to have made it, and the sentences change accordingly. Getting this
-# wrong would put a false claim in a message someone actually sends.
-def _authored(me: dict) -> bool:
-    return not me.get("_borrowed")
-
-
-# The insight sentences are written in the owner's voice - "the companies I track"
-# - because until now the owner was the only person sending them. In somebody
-# else's message that phrase contradicts the sentence above it, which says they
-# were reading a public dataset rather than keeping one. Swapped at the point of
-# use rather than changed in insights.py, because the site and the owner's own
-# drafts should keep saying "I track": there, it is true.
-BORROWED_VOICE = (
-    ("the companies I track", "the companies it tracks"),
-    ("companies I track", "companies it tracks"),
-    ("I've been accumulating", "that has been accumulating"),
-)
-
-
-def _voice(text: str, me: dict) -> str:
-    if _authored(me):
-        return text
-    for mine, theirs in BORROWED_VOICE:
-        text = text.replace(mine, theirs)
-    return text
-
-
 def _article(phrase: str) -> str:
     """"an Ai Engineer", "a CS student". Crude, and right far more often than not."""
     return "an" if phrase[:1].lower() in "aeiou" else "a"
@@ -128,25 +96,8 @@ def _needs_article(phrase: str) -> str:
 
 
 def _about(me: dict) -> str:
-    """"I'm a Computer Science student at McGill", from whatever was given."""
+    """"I'm a Computer Science student at McGill", from the configured profile."""
     program, school = me.get("program", "").strip(), me.get("school", "").strip()
-
-    # A visitor's words are used exactly as typed, because the page asks open
-    # questions - "What you do", "Where" - and the answers already contain their
-    # own nouns. Wrapping them in "student" regardless turned "Ai Engineer" into
-    # "I'm a Ai Engineer student at Uwaterloo": the wrong article, a job title
-    # recast as a degree, and a description of somebody the sender is not. The
-    # owner's profile is structured and genuinely is a student, so that branch is
-    # unchanged and still reads as a sentence rather than a slot fill.
-    if not _authored(me):
-        if program and school:
-            return f"I'm {_article(program)} {program} at {school},"
-        if program:
-            return f"I'm {_article(program)} {program},"
-        if school:
-            return f"I'm at {school},"
-        return ""
-
     if program and school:
         return f"I'm a {program} student at {school},"
     if program:
@@ -160,13 +111,10 @@ def _wants(me: dict) -> str:
     """
     "looking for a Winter 2027 Data Engineer term", or the visitor's own phrase.
 
-    Same reasoning as _about. The owner seeks a co-op term and the word is
-    accurate; a visitor typed whatever they are looking for into a box labelled
-    "Looking for", and "looking for a full-time data role term" is not a sentence.
+    The profile is structured - a term and a target role - so this reads as a
+    sentence rather than a slot fill. A visitor's free text is handled in
+    visitor.py, where the words they typed are used exactly as typed.
     """
-    if not _authored(me):
-        want = me.get("term", "").strip()
-        return f"looking for {_needs_article(want)}" if want else ""
     seeking = _seeking(me)
     return f"looking for a {seeking} term" if seeking else ""
 
@@ -244,35 +192,29 @@ def _lead(insights: list) -> tuple[str, str | None]:
     return lead.text, second
 
 
-def connection_note(company: str, insights: list, sender: dict | None = None) -> str:
+def connection_note(company: str, insights: list) -> str:
     """LinkedIn connection note. Hard 300-character cap, so one fact only."""
     lead, _ = _lead(insights)
-    me = sender or _sender()
-    lead = _voice(lead, me)
-    source = ("I build a public dataset on data-engineering hiring and"
-              if _authored(me) else
-              "I was reading a public dataset on data-engineering hiring and")
-    where = f" The numbers are at {company_url(company)}." if _authored(me) else ""
-    note = (f"Hi - {source} "
-            f"{company} came up: {lead}.{where} {_intro(me).rstrip('.')}"
+    me = _sender()
+    note = (f"Hi - I build a public dataset on data-engineering hiring and "
+            f"{company} came up: {lead}. The numbers are at "
+            f"{company_url(company)}. {_intro(me).rstrip('.')}"
             f"{' - ' if _intro(me) else ''}would value your read on it.")
     if len(note) > CONNECTION_LIMIT:
         # Drop the sender's own description before truncating anything factual:
-        # the fact is what earns the accept, and for the owner so is the link.
-        short = f" Numbers here: {company_url(company)}" if _authored(me) else ""
-        note = (f"Hi - {source} "
-                f"{company} came up: {lead}.{short} - would value your read.")
+        # the fact and the link are what earn the accept.
+        note = (f"Hi - I build a public dataset on data-engineering hiring and "
+                f"{company} came up: {lead}. Numbers here: "
+                f"{company_url(company)} - would value your read.")
     if len(note) > CONNECTION_LIMIT:
         note = note[:CONNECTION_LIMIT - 1].rsplit(" ", 1)[0] + "…"
     return note
 
 
-def followup(company: str, insights: list, sender: dict | None = None) -> str:
+def followup(company: str, insights: list) -> str:
     """Sent after a connection request is accepted. ~120 words."""
     lead, second = _lead(insights)
-    me = sender or _sender()
-    lead = _voice(lead, me)
-    second = _voice(second, me) if second else second
+    me = _sender()
     # `second` is a clause about the company ("220 of their 997 open roles
     # were posted in the last 30 days"), so it needs a connector that takes a
     # clause. "They also showed up as <clause>" does not parse.
@@ -280,53 +222,35 @@ def followup(company: str, insights: list, sender: dict | None = None) -> str:
     return "\n\n".join([
         "Thanks for connecting.",
         _para(f"The reason {company} caught my attention: {lead}.{also}",
-              *(("That comes out of a pipeline I built that tracks",
-                 "data-engineering hiring daily - postings from company career",
-                 "boards, visa filings from the Department of Labor, and a",
-                 "per-technology demand index I've been accumulating because",
-                 "nobody publishes one.")
-                if _authored(me) else
-                ("That comes out of a public dataset tracking data-engineering",
-                 "hiring daily - postings from company career boards, visa filings",
-                 "from the Department of Labor, and a per-technology demand",
-                 "index.")),
-              *((f"Your page is at {company_url(company)} if you want to check the",
-                 "figures.") if _authored(me) else ())),
-        _para(_intro(me) or "Getting in touch because it seemed worth asking.",
+              "That comes out of a pipeline I built that tracks",
+              "data-engineering hiring daily - postings from company career",
+              "boards, visa filings from the Department of Labor, and a",
+              "per-technology demand index I've been accumulating because",
+              "nobody publishes one.",
+              f"Your page is at {company_url(company)} if you want to check the",
+              "figures."),
+        _para(_intro(me),
               "Not asking you to forward a resume - I'd genuinely value your read",
               f"on whether this holds up against how {company} actually works."),
     ])
 
 
-def email(company: str, insights: list, sender: dict | None = None) -> str:
+def email(company: str, insights: list) -> str:
     """Cold email. ~105 words, and the subject line carries the fact."""
     lead, _ = _lead(insights)
-    me = sender or _sender()
-    lead = _voice(lead, me)
+    me = _sender()
     subject = f"{possessive(company)} hiring, from the data side"
     body = "\n\n".join([
         "Hi,",
-        _para(("I maintain a public dataset on data-engineering hiring, and"
-               if _authored(me) else
-               "I was looking through a public dataset on data-engineering hiring,"
-               " and"),
-              # The link is the owner's, and only the owner sends it. A visitor
-              # citing a public dataset has no business pointing a stranger at
-              # somebody else's project as though it were their own credential -
-              # and a recipient who follows it lands on a page that belongs to a
-              # third person the message never mentions.
-              (f"{company} stood out: {lead}. The page is {company_url(company)}"
-               if _authored(me) else f"{company} stood out: {lead}."),
-              *(["- every figure there traces back to a query."]
-                if _authored(me) else [])),
-        *([_para("I built it end to end: daily ingestion from company career boards",
-                 "into a warehouse, dbt models, and a per-technology demand index",
-                 "accumulated daily because no public source has one.")]
-          if _authored(me) else []),
-        _para(_intro(me) or "Getting in touch because it seemed worth asking.",
+        _para("I maintain a public dataset on data-engineering hiring, and",
+              f"{company} stood out: {lead}. The page is {company_url(company)}",
+              "- every figure there traces back to a query."),
+        _para("I built it end to end: daily ingestion from company career boards",
+              "into a warehouse, dbt models, and a per-technology demand index",
+              "accumulated daily because no public source has one."),
+        _para(_intro(me),
               "Rather than a resume, I'd value your opinion: does this match how",
               f"hiring actually looks from inside {company}?"),
-        *([me["name"]] if me.get("name") else []),
     ])
     return f"Subject: {subject}\n\n{body}"
 
@@ -343,22 +267,43 @@ def baseline_companies(cur, names: list[str]) -> list[str]:
 
 
 def drafts_for(cur, company: str, peers: dict, market: dict, days: int,
-               sender: dict | None = None) -> dict:
+               you: dict | None = None, *, owner: bool = False) -> dict:
+    """
+    The three messages for one company, for whoever is sending them.
+
+    `owner` is explicit and defaults to FALSE, which is the whole point. It used
+    to be inferred from whether a sender happened to be supplied, so a visitor who
+    filled in nothing looked exactly like the owner and was handed the owner's
+    message, his school and a link to his project. Absence of information now
+    means the safe thing rather than the revealing thing, and a caller that wants
+    the owner's voice has to say so in as many words.
+    """
     facts = _fetch_facts(cur, company)
     if not facts or not facts.get("roles"):
         return {"company": company, "error": "no postings stored"}
-    insights = build_insights(company, facts, peers, market, days)
+    insights = build_insights(company, facts, peers, market, days,
+                              voice="owner" if owner else "neutral")
     if not insights:
         return {"company": company, "error": "no usable insight"}
-    return {
+
+    out = {
         "company": company,
-        "url": company_url(company),
         "insights": [{"tier": i.tier, "kind": i.kind, "text": i.text,
                       "evidence": i.evidence} for i in insights],
-        "connection": connection_note(company, insights, sender),
-        "followup": followup(company, insights, sender),
-        "email": email(company, insights, sender),
     }
+    if owner:
+        # The link belongs in the owner's messages and in nobody else's, so it is
+        # not merely omitted from a visitor's text - it is never computed on that
+        # path, and therefore cannot reach the model's prompt either.
+        out["url"] = company_url(company)
+        out["connection"] = connection_note(company, insights)
+        out["followup"] = followup(company, insights)
+        out["email"] = email(company, insights)
+        return out
+
+    from visitor import messages  # noqa: PLC0415
+    out.update(messages(company, insights, you))
+    return out
 
 
 def _wrapped(text: str, width: int = 76) -> str:
@@ -395,7 +340,7 @@ def main() -> None:
 
     out = []
     for name in names:
-        d = drafts_for(cur, name, peers, market, days)
+        d = drafts_for(cur, name, peers, market, days, owner=True)
         out.append(d)
         print("=" * 78)
         if d.get("error"):
