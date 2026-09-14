@@ -125,16 +125,18 @@ def verify_all(drafts: dict, company: str, url: str, insights: list[dict],
     """Verify each variant against its own channel budget."""
     from compose import CONNECTION_LIMIT
 
+    # A borrowed sender is somebody using the public page rather than the dataset's
+    # owner, and their draft may not claim to have built it.
+    borrowed = bool(sender.get("_borrowed"))
+    common = {"company": company, "url": url, "insights": insights,
+              "sender": sender, "borrowed": borrowed}
     return {
-        "email": verify_draft(drafts.get("email", ""), company=company, url=url,
-                              insights=insights, sender=sender,
-                              max_words=EMAIL_MAX_WORDS),
-        "connection": verify_draft(drafts.get("connection", ""), company=company,
-                                   url=url, insights=insights, sender=sender,
-                                   max_chars=CONNECTION_LIMIT),
-        "followup": verify_draft(drafts.get("followup", ""), company=company, url=url,
-                                 insights=insights, sender=sender,
-                                 max_words=FOLLOWUP_MAX_WORDS),
+        "email": verify_draft(drafts.get("email", ""), max_words=EMAIL_MAX_WORDS,
+                              **common),
+        "connection": verify_draft(drafts.get("connection", ""),
+                                   max_chars=CONNECTION_LIMIT, **common),
+        "followup": verify_draft(drafts.get("followup", ""),
+                                 max_words=FOLLOWUP_MAX_WORDS, **common),
     }
 
 

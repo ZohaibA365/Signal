@@ -156,6 +156,41 @@ class TestWhatMustFail:
         assert any("over the 140 limit" in f for f in v.failures)
 
 
+class TestAuthorshipInSomebodyElsesName:
+    """
+    The public page writes in a visitor's voice, and the dataset is not theirs.
+
+    This is a rail rather than a prompt instruction because the instruction was
+    tried first and failed on the very first live run: told plainly that the sender
+    did not build the dataset and must never claim to, the model wrote "I built a
+    daily ingestion pipeline from career boards into a warehouse" in a stranger's
+    name. A false claim in a message somebody may actually send is not worth asking
+    nicely about.
+    """
+
+    CLAIMS = ["I built a daily ingestion pipeline.",
+              "I maintain this dataset.",
+              "My pipeline tracks hiring daily.",
+              "about 3x the rate across the companies I track"]
+
+    @pytest.mark.parametrize("claim", CLAIMS)
+    def test_a_visitor_may_not_claim_to_have_built_it(self, claim):
+        v = verify(f"TD Bank stood out. {claim} See {URL}", borrowed=True)
+        assert not v.passed
+        assert any("claims to have built" in f for f in v.failures), v.failures
+
+    @pytest.mark.parametrize("claim", CLAIMS)
+    def test_the_owner_may_say_all_of_it(self, claim):
+        """It is true of them, and their own drafts must not be rejected for it."""
+        v = verify(f"TD Bank stood out. {claim} See {URL}", borrowed=False)
+        assert v.passed, v.failures
+
+    def test_citing_the_dataset_is_fine_for_a_visitor(self):
+        v = verify(f"TD Bank stood out. I found this in a public dataset. See {URL}",
+                   borrowed=True)
+        assert v.passed, v.failures
+
+
 class TestTheVerdictIsExplainable:
     def test_failures_name_the_offending_claim(self):
         """'Verification failed' is not actionable; the number that failed is."""

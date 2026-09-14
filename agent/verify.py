@@ -49,6 +49,23 @@ FORBIDDEN_CLAIMS = (
     "your recruiter told me", "i was referred",
 )
 
+# Claims of having built the dataset. Checked only when the sender did not build it
+# - that is, on the public page, where the message is somebody else's.
+#
+# This is a rail rather than an instruction because the instruction was tried first
+# and did not hold. The prompt says plainly that the sender did not build this and
+# must never write that they did; the model then wrote "I built a daily ingestion
+# pipeline from career boards into a warehouse" in a stranger's name on the first
+# live run. A false claim in a message a person may actually send is not something
+# to ask nicely about.
+AUTHORSHIP_CLAIMS = (
+    "i built", "i've built", "i have built", "i made", "i created", "i wrote",
+    "i maintain", "i run ", "i operate", "i developed", "i designed and built",
+    "my pipeline", "my dataset", "my warehouse", "i've been accumulating",
+    "i have been accumulating", "i track", "i collect", "i scrape",
+    "pipeline i built", "dataset i built", "that i built",
+)
+
 # The playbook forbids these outright: a requisition number turns a message into a
 # ticket, per outreach/compose.py's rules.
 REQ_NUMBER = re.compile(r"\b(req(uisition)?\.?\s*#?\s*\d+|job\s*id\s*#?\s*\d+)", re.IGNORECASE)
@@ -153,7 +170,8 @@ def check_numbers(text: str, insights: list[dict], sender: dict | None = None) -
 
 def verify_draft(text: str, *, company: str, url: str, insights: list[dict],
                  sender: dict | None = None, max_chars: int | None = None,
-                 max_words: int | None = None) -> Verification:
+                 max_words: int | None = None,
+                 borrowed: bool = False) -> Verification:
     """
     Run every check against one draft. Fails closed: any failure means reject.
 
@@ -205,6 +223,13 @@ def verify_draft(text: str, *, company: str, url: str, insights: list[dict],
     for phrase in FORBIDDEN_CLAIMS:
         if phrase in lowered:
             failures.append(f"claims a relationship that does not exist: {phrase!r}")
+
+    # 6. Authorship, when the message is not the dataset owner's.
+    if borrowed:
+        checks += 1
+        for phrase in AUTHORSHIP_CLAIMS:
+            if phrase in lowered:
+                failures.append(f"claims to have built the dataset: {phrase!r}")
     if REQ_NUMBER.search(body):
         failures.append("contains a requisition number, which the playbook forbids")
 
