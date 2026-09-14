@@ -149,11 +149,17 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str):
                     cur, job, context, api, MODEL, DRAFT_MODEL,
                     agent_mod.MAX_STEPS_PER_JOB, on_event=emit)
 
-                cur.execute("SELECT draft_email FROM outreach_tracker "
-                            "WHERE source || ':' || job_id = %s", (job["job_id"],))
-                row = cur.fetchone()
-                if row and row[0]:
-                    emit({"kind": "draft", "text": row[0]})
+                # Only when THIS run drafted. The row keeps whatever was written
+                # last time, so reading it unconditionally showed an old draft after
+                # a run that had correctly refused to write a new one - the console
+                # displayed a message beside the words "skipping to avoid a
+                # duplicate", which is precisely the wrong impression.
+                if record.get("drafted"):
+                    cur.execute("SELECT draft_email FROM outreach_tracker "
+                                "WHERE source || ':' || job_id = %s", (job["job_id"],))
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        emit({"kind": "draft", "text": row[0]})
                 emit({"kind": "done", "note": outcome_note(record),
                       "outcome": record.get("outcome")})
         except Exception as exc:                                     # noqa: BLE001

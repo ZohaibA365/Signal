@@ -92,3 +92,7 @@ github-secrets.txt
 # name that have not been sent to anybody, and they belong on that person's disk
 # rather than in a public repository.
 drafts.html
+
+# The service's environment, written locally for pasting into the host. Live
+# credentials; never committed.
+.railway-env

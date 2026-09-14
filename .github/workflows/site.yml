@@ -44,6 +44,11 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SITE_URL: ${{ vars.SITE_URL || 'https://zohaiba365.github.io/Signal' }}
+      # The live agent service. Not a secret - it is a public URL, and the endpoint
+      # behind it limits itself. The page gives it two seconds to answer and plays a
+      # recorded run on anything else, so an empty value here, or a service that is
+      # down, is not a broken page: it is the same page without the live path.
+      SIGNAL_AGENT_API: ${{ vars.SIGNAL_AGENT_API || 'https://signal-production-51b2.up.railway.app' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
