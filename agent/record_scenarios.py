@@ -154,40 +154,106 @@ def as_events(record: dict) -> list[dict]:
     return events
 
 
-def drafted_email(job_id: str) -> str | None:
+# Nobody in particular: the public page's own default, with no name, no school and
+# no programme. _borrowed is what tells compose.py and the verifier that the sender
+# did not build this dataset, so the recorded email cites it instead of claiming it.
+VISITOR = {"_borrowed": True}
+
+# The company the recording runs against. Any tracked employer with enough postings
+# works; this one has a strong, checkable lead fact.
+RECORD_COMPANY = os.getenv("SIGNAL_RECORD_COMPANY", "Anduril Industries")
+
+
+def from_visitor_run() -> dict | None:
     """
-    The email the recorded run actually produced.
+    The happy path, recorded the way a visitor experiences it.
 
-    The run log holds what the agent did, not what it wrote: draft_outreach_email
-    returns the company, the url, the insight count and the verification result,
-    and the text itself goes to the tracker. That is the right split for a log -
-    the same email would otherwise be stored twice and could disagree with itself -
-    but it means the recording has to read the text back from where it was written,
-    exactly as the live service does at service/app.py.
+    This used to be lifted from agent/logs/, which are the owner's own runs. So the
+    single worked example on a page whose entire purpose is writing a STRANGER's
+    email was the owner's: "I built a dataset tracking hiring trends", signed off as
+    a Waterloo Management Engineering student. Somebody who had just typed their own
+    name into the boxes read that as what the tool had written for them, and they
+    were right to be angry about it. A label saying whose it was does not fix the
+    example being wrong; the example has to be right.
 
-    A failure here is not a build failure. The scenario simply carries no draft and
-    plays as it did before, which is the same thing that happens when the page has
-    no database at all.
+    So the recording is made by running the real agent, against a real posting, as
+    an anonymous visitor - the same code path, the same rails, the same verifier the
+    live service uses. Whoever plays it back sees the kind of email they would get.
+
+    Writes land in the demo schema, never the warehouse, exactly as the service's
+    runs do. The tracker row for the chosen posting is reset first, because a
+    recording of the happy path needs the happy path available: left alone, the
+    duplicate rail would correctly refuse and there would be nothing to record.
     """
     try:
+        sys.path.insert(0, str(ROOT))
+        import anthropic  # noqa: PLC0415
         from db import connect  # noqa: PLC0415
-        conn = connect(autocommit=True)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT draft_email FROM outreach_tracker "
-                            "WHERE source || ':' || job_id = %s", (job_id,))
-                row = cur.fetchone()
-                return row[0] if row and row[0] else None
-        finally:
-            conn.close()
-    except Exception as exc:                                        # noqa: BLE001
-        print(f"  could not read the drafted email ({type(exc).__name__}); "
-              f"the recorded run will play without it")
+        from tools import DraftingContext  # noqa: PLC0415
+
+        from service import resolve  # noqa: PLC0415
+    except Exception as exc:                                         # noqa: BLE001
+        print(f"  cannot record a live run ({type(exc).__name__}); keeping staged only")
         return None
+
+    conn = connect(autocommit=True)
+    try:
+        with conn.cursor() as cur:
+            # The sandbox, reached as the owner so the row can be reset. The agent's
+            # unqualified outreach_tracker resolves to demo.outreach_tracker here,
+            # while the warehouse still reads from public - the same arrangement
+            # service/app.py sets up for a visitor.
+            cur.execute("SET search_path TO demo, public")
+
+            job = resolve.posting_for(cur, RECORD_COMPANY)
+            if not job:
+                print(f"  {RECORD_COMPANY} has no open posting to record against")
+                return None
+
+            source, _, job_id = job["job_id"].partition(":")
+            cur.execute("UPDATE demo.outreach_tracker SET status = 'not_contacted' "
+                        "WHERE source = %s AND job_id = %s", (source, job_id))
+
+            client = anthropic.Anthropic(
+                api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
+                timeout=60.0, max_retries=2)
+            context = DraftingContext(cur, [job["company"]], VISITOR)
+            record = agent_mod.process_job(
+                cur, job, context, client, agent_mod.MODEL, agent_mod.DRAFT_MODEL,
+                agent_mod.MAX_STEPS_PER_JOB)
+
+            if not record.get("drafted"):
+                print(f"  the recording run did not draft ({record.get('outcome')})")
+                return None
+
+            cur.execute("SELECT draft_email FROM demo.outreach_tracker "
+                        "WHERE source = %s AND job_id = %s", (source, job_id))
+            row = cur.fetchone()
+
+        scenario = {
+            "id": "real", "staged": False,
+            "label": f"{job['company']} — a real run",
+            "company": job["company"], "title": job["title"],
+            "note": "An actual run against a real posting, checked against the warehouse.",
+            "events": as_events(record),
+        }
+        # Without this the console finishes by announcing a draft and then shows
+        # nothing, which reads as a broken page rather than a recording. agent.js
+        # already types out scenario.draft; it was never given one.
+        if row and row[0]:
+            scenario["draft"] = row[0]
+        return scenario
+    finally:
+        conn.close()
 
 
 def from_log() -> dict | None:
-    """The happy path, taken from a real run rather than staged."""
+    """
+    The previous recording, kept only as a fallback when no live run is possible.
+
+    It is an owner's run, so its draft is deliberately left out: an example email in
+    somebody else's name and voice is worse on this page than no example at all.
+    """
     logs = sorted(glob.glob(str(ROOT / "agent" / "logs" / "run_*.json")))
     for path in reversed(logs):
         with open(path) as fh:
@@ -196,28 +262,21 @@ def from_log() -> dict | None:
             continue
         for job in data["jobs"]:
             if job.get("outcome") == "email_drafted" and job.get("draft_source") == "model":
-                scenario = {
+                return {
                     "id": "real", "staged": False,
                     "label": f"{job['company']} — a real run",
                     "company": job["company"], "title": job["title"],
                     "note": "An actual run from the log, model-written and verified.",
                     "events": as_events(job),
                 }
-                # Without this the console finishes by announcing a draft and then
-                # shows nothing, which reads as a broken page rather than a
-                # recording. agent.js already types out scenario.draft; it was
-                # never given one.
-                email = drafted_email(job["job_id"])
-                if email:
-                    scenario["draft"] = email
-                return scenario
     return None
 
 
 def main() -> None:
     scenarios = []
 
-    real = from_log()
+    # A live visitor run first; the old owner's log only if that is impossible.
+    real = from_visitor_run() or from_log()
     if real:
         scenarios.append(real)
 

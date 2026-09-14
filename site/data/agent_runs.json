@@ -3,10 +3,10 @@
     {
       "id": "real",
       "staged": false,
-      "label": "TD Bank — a real run",
-      "company": "TD Bank",
-      "title": "Data Engineer Intern/Co-op​ (Winter 2027)",
-      "note": "An actual run from the log, model-written and verified.",
+      "label": "Anduril Industries — a real run",
+      "company": "Anduril Industries",
+      "title": "Algorithm Developer, Tracking Systems",
+      "note": "An actual run against a real posting, checked against the warehouse.",
       "events": [
         {
           "kind": "step",
@@ -16,22 +16,22 @@
           "note": "Not contacted before — clear to draft.",
           "detail": "not_contacted; drafting allowed",
           "arguments": {
-            "job_id": "company_board:workday:R_1509826"
+            "job_id": "company_board:greenhouse:5226940007"
           },
-          "ms": 103
+          "ms": 41
         },
         {
           "kind": "step",
           "tool": "draft_outreach_email",
           "status": "ok",
           "before": "Drafting outreach from what the warehouse knows about them...",
-          "note": "Drafted from 6 verified observation(s), written by the model.",
-          "detail": "6 insight(s), drafted by the model",
+          "note": "Drafted from 5 verified observation(s), written by the template.",
+          "detail": "5 insight(s), drafted by the template",
           "arguments": {
-            "job_id": "company_board:workday:R_1509826",
-            "company": "TD Bank"
+            "job_id": "company_board:greenhouse:5226940007",
+            "company": "Anduril Industries"
           },
-          "ms": 4868
+          "ms": 9107
         },
         {
           "kind": "step",
@@ -41,19 +41,19 @@
           "note": "Tracker updated: not_contacted → email_drafted.",
           "detail": "not_contacted -> email_drafted",
           "arguments": {
-            "job_id": "company_board:workday:R_1509826",
+            "job_id": "company_board:greenhouse:5226940007",
             "new_status": "email_drafted",
-            "notes": "Data Engineer Intern/Co-op outreach drafted with hiring trend analysis"
+            "notes": "Draft generated for Algorithm Developer, Tracking Systems position at Anduril Industries."
           },
-          "ms": 93
+          "ms": 82
         },
         {
           "kind": "done",
-          "note": "Done. Draft written by the model, every figure in it checked against the warehouse.",
+          "note": "Done. Draft written by the template, every figure in it checked against the warehouse.",
           "outcome": "email_drafted"
         }
       ],
-      "draft": "Subject: TD Bank's hiring pace vs. the market\n\nI built a dataset tracking hiring trends across major employers—daily ingestion from career boards, dbt models, and a demand index by tech. It's at https://zohaiba365.github.io/Signal/companies/td-bank/ \n\nI noticed TD Bank posted 370 roles in the last 30 days, roughly 18.5x the median pace I track. You're also emphasizing Power BI at 5.7x the peer rate, and hiring across 16 states.\n\nDoes that velocity match what you're seeing on the engineering side? I'm a Management Engineering student at University of Waterloo looking for a Winter 2027 Data Engineer term, and I'm curious whether TD Bank's demand signal holds up against your actual pipeline."
+      "draft": "Subject: Anduril Industries' hiring, from the data side\n\nHi,\n\nI was looking through a public dataset on data-engineering hiring, and Anduril Industries stood out: they mention computer_vision in 99% of their postings, about 74.3x the rate across the companies it tracks. The page is https://zohaiba365.github.io/Signal/companies/anduril-industries/ - every figure there traces back to a query.\n\nGetting in touch because it seemed worth asking. Rather than a resume, I'd value your opinion: does this match how hiring actually looks from inside Anduril Industries?"
     },
     {
       "id": "already_contacted",

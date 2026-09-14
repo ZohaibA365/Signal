@@ -122,13 +122,13 @@
       if (i >= scenario.events.length) {
         running = false;
         if (scenario.draft) {
-          /* Say whose email this is before showing it. A recorded draft is
-             written in the voice of the person who actually ran it, so a visitor
-             who typed their own name into the boxes above would otherwise read an
-             email that says "I built a dataset" and take it as theirs. The label
-             is the same honesty the drafting itself is held to. */
-          el.mode.textContent = "Recorded run · this is the email the agent wrote "
-            + "for Signal's author, not one written for you — run it live to get yours";
+          /* The recorded draft is a real run made with no sender details at all,
+             so it is an example rather than anybody's message. Saying so is worth
+             a line: the version that showed the author's own email, correctly
+             labelled as his, still read to a visitor as what the tool had written
+             for them. */
+          el.mode.textContent = "Recorded run · an example with no details filled "
+            + "in — run it live and it writes in your words";
           typeOut(scenario.draft);
         }
         return;
