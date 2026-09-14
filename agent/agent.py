@@ -205,8 +205,25 @@ def execute(cur, tool: str, args: dict, context: DraftingContext, client, draft_
 
 
 def process_job(cur, job: dict, context: DraftingContext, client, model: str,
-                draft_model: str, max_steps: int) -> dict:
-    """One posting through the loop. Returns the record for the run log."""
+                draft_model: str, max_steps: int, on_event=None) -> dict:
+    """
+    One posting through the loop. Returns the record for the run log.
+
+    on_event, when given, is called with each step's record as it happens, so a
+    caller can stream progress rather than waiting for the return value. It
+    defaults to None and the loop behaves identically without it - the web service
+    watches; it does not participate. A callback that raises must not be able to
+    take the run down with it, so it is called defensively.
+    """
+    def emit(payload: dict) -> None:
+        if on_event is None:
+            return
+        try:
+            on_event(payload)
+        except Exception:                                           # noqa: BLE001
+            # A viewer disconnecting mid-run is normal and is not the agent's
+            # problem. The work continues and the log is written either way.
+            pass
     record = {"job_id": job["job_id"], "company": job["company"],
               "title": job["title"], "fit_score": job["fit_score"],
               "steps": [], "outcome": None, "drafted": False}
@@ -226,6 +243,7 @@ def process_job(cur, job: dict, context: DraftingContext, client, model: str,
                          if getattr(b, "type", "") == "text"), "")
             record["outcome"] = record["outcome"] or "finished"
             record["summary"] = (said or "").strip()[:300]
+            emit({"kind": "outcome", "record": record})
             return record
 
         messages.append({"role": "assistant", "content": response.content})
@@ -246,6 +264,7 @@ def process_job(cur, job: dict, context: DraftingContext, client, model: str,
                 "data": {k: v for k, v in result.data.items() if k != "drafts"},
             }
             record["steps"].append(entry)
+            emit(entry)
             level = log.info if result.ok else log.warning
             level("    %-26s %-9s %s", block.name,
                   "ok" if result.ok else ("rejected" if result.rejected else "failed"),
@@ -267,6 +286,7 @@ def process_job(cur, job: dict, context: DraftingContext, client, model: str,
     # it means the model kept going, which is information about the model.
     record["outcome"] = "step limit reached"
     log.warning("    step limit reached after %s calls", max_steps)
+    emit({"kind": "outcome", "record": record})
     return record
 
 

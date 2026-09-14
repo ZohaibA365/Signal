@@ -1,0 +1,10 @@
+# The public service only. Separate from the repository's other requirements for
+# the same reason requirements-snowflake.txt and requirements-spark.txt are
+# separate: this is an optional install, and it must not be able to break the one
+# CI depends on.
+#
+# It also needs what the agent itself needs - psycopg2, anthropic, pydantic,
+# python-dotenv - which requirements-dev.txt already pins. The Dockerfile installs
+# both files, in that order.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4

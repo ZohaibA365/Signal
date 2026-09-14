@@ -65,13 +65,26 @@
   }
 
   /* One event, rendered. Shared by the live path and the replay so the two cannot
-     drift apart visually. */
+     drift apart visually.
+     Returns "fallback" when the event means the live run is not going to happen,
+     so the caller can play a recording instead of leaving a half-filled console. */
   function render(ev) {
     if (ev.kind === "done") {
       var row = line("done", "", ev.note || "");
       row.className = "ln done";
       return;
     }
+    if (ev.kind === "resolved") { line("say", "·", ev.note || ""); return; }
+    if (ev.kind === "unavailable") {
+      // Not a failure: the agent declining to invent something about a company it
+      // has no data on is the system working, so it reads as an answer.
+      line("rej", "▲", ev.note || "");
+      if (ev.suggestions && ev.suggestions.length) {
+        line("say", "·", "Try one of these instead: " + ev.suggestions.join(", "));
+      }
+      return;
+    }
+    if (ev.kind === "limited" || ev.kind === "error") return "fallback";
     if (ev.before) line("say", "·", ev.before);
     var cls = ev.status === "ok" ? "ok" : (ev.status === "rejected" ? "rej" : "fail");
     var mark = ev.status === "ok" ? "✓" : (ev.status === "rejected" ? "▲" : "✕");
@@ -157,8 +170,11 @@
             if (!body) return;
             try {
               var ev = JSON.parse(body);
-              if (ev.kind === "draft") typeOut(ev.text);
-              else render(ev);
+              if (ev.kind === "draft") { typeOut(ev.text); return; }
+              // A refusal to spend, or a server-side error, is indistinguishable
+              // from the service being down as far as the visitor is concerned:
+              // both play a recording.
+              if (render(ev) === "fallback") { fellBack = false; fallback(); }
             } catch (e) { /* a malformed frame is not worth breaking the run for */ }
           });
           pump();
