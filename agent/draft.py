@@ -60,7 +60,9 @@ THE RULES, in order. They are not style preferences; a message that breaks one i
 discarded.
 
 1. Open with something true and specific about THEM, not about the sender.
-2. Say what the sender built, in one line, with the link so they can check it.
+2. Say where the observation comes from, in one line. If the sender built the
+   dataset, say so and give the link. If they did not, say they were reading a
+   public dataset and give no link - see the note on the sender below.
 3. Ask for their opinion, not their time. "Does this hold up?" is answerable in one
    line; "would you be open to a chat" asks a stranger for a calendar slot.
 4. Mention the role last, as interest rather than an application. Never a
@@ -78,8 +80,8 @@ This is checked mechanically against the observations after you answer. A draft
 containing any unsupported number is thrown away, so inventing one costs the
 message rather than improving it.
 
-Use only the exact link given, and put a space after it rather than running
-punctuation straight onto the end.
+If you are told to include the link, use only the exact one given, and put a space
+after it rather than running punctuation straight onto the end.
 
 Name the company in every one of the three variants. "Your team" reads as though it
 could be addressed to anyone, and each variant is checked on its own.
@@ -105,7 +107,9 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict) -> str:
         ("THE SENDER built and maintains this dataset."
          if not sender.get("_borrowed") else
          "THE SENDER did NOT build this dataset - they are citing it. Never write "
-         "that they built, maintain or run it."),
+         "that they built, maintain or run it, and do NOT include the link or any "
+         "other URL: it is somebody else's project and the sender cannot offer it "
+         "as their own. State the observation and stop."),
         "",
         "THE SENDER:",
         f"  name: {sender.get('name') or '(unnamed - do not invent one)'}",

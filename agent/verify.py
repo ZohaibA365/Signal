@@ -198,9 +198,20 @@ def verify_draft(text: str, *, company: str, url: str, insights: list[dict],
     # link that was right. Stripping trailing characters cannot help when the
     # offending character is in the middle of what the pattern matched.
     urls = [_clean_url(u) for u in re.findall(r"https?://\S+", body)]
-    stray = [u for u in urls if u != url]
-    if stray:
-        failures.append(f"link is not the company's page: {', '.join(stray)}")
+    if borrowed:
+        # A visitor's message carries no link at all, not even the right one. The
+        # dataset is not theirs; sending a stranger to somebody else's project as
+        # though it were their own credential misrepresents the sender, and a
+        # recipient who clicks it arrives at a page belonging to a third person the
+        # message never mentions. The template already omits it - this is the rail,
+        # because the model is free to add one back.
+        if urls:
+            failures.append(f"links to the dataset, which is not the sender's: "
+                            f"{', '.join(urls)}")
+    else:
+        stray = [u for u in urls if u != url]
+        if stray:
+            failures.append(f"link is not the company's page: {', '.join(stray)}")
 
     # 3. The company must be named. Deliberately not also checking that no OTHER
     #    employer is named: doing that properly needs the full list of company

@@ -18,7 +18,7 @@
           "arguments": {
             "job_id": "company_board:greenhouse:5226940007"
           },
-          "ms": 41
+          "ms": 38
         },
         {
           "kind": "step",
@@ -31,7 +31,7 @@
             "job_id": "company_board:greenhouse:5226940007",
             "company": "Anduril Industries"
           },
-          "ms": 9107
+          "ms": 5202
         },
         {
           "kind": "step",
@@ -43,9 +43,9 @@
           "arguments": {
             "job_id": "company_board:greenhouse:5226940007",
             "new_status": "email_drafted",
-            "notes": "Draft generated for Algorithm Developer, Tracking Systems position at Anduril Industries."
+            "notes": "Outreach email drafted for Algorithm Developer, Tracking Systems role at Anduril Industries."
           },
-          "ms": 82
+          "ms": 52
         },
         {
           "kind": "done",
@@ -53,7 +53,7 @@
           "outcome": "email_drafted"
         }
       ],
-      "draft": "Subject: Anduril Industries' hiring, from the data side\n\nHi,\n\nI was looking through a public dataset on data-engineering hiring, and Anduril Industries stood out: they mention computer_vision in 99% of their postings, about 74.3x the rate across the companies it tracks. The page is https://zohaiba365.github.io/Signal/companies/anduril-industries/ - every figure there traces back to a query.\n\nGetting in touch because it seemed worth asking. Rather than a resume, I'd value your opinion: does this match how hiring actually looks from inside Anduril Industries?"
+      "draft": "Subject: Anduril Industries' hiring, from the data side\n\nHi,\n\nI was looking through a public dataset on data-engineering hiring, and Anduril Industries stood out: they mention computer_vision in 99% of their postings, about 74.3x the rate across the companies it tracks.\n\nGetting in touch because it seemed worth asking. Rather than a resume, I'd value your opinion: does this match how hiring actually looks from inside Anduril Industries?"
     },
     {
       "id": "already_contacted",

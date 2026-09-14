@@ -252,16 +252,16 @@ def connection_note(company: str, insights: list, sender: dict | None = None) ->
     source = ("I build a public dataset on data-engineering hiring and"
               if _authored(me) else
               "I was reading a public dataset on data-engineering hiring and")
+    where = f" The numbers are at {company_url(company)}." if _authored(me) else ""
     note = (f"Hi - {source} "
-            f"{company} came up: {lead}. The numbers are at "
-            f"{company_url(company)}. {_intro(me).rstrip('.')}"
+            f"{company} came up: {lead}.{where} {_intro(me).rstrip('.')}"
             f"{' - ' if _intro(me) else ''}would value your read on it.")
     if len(note) > CONNECTION_LIMIT:
-        # Drop the school clause before truncating anything factual: the fact
-        # and the link are what earn the accept.
+        # Drop the sender's own description before truncating anything factual:
+        # the fact is what earns the accept, and for the owner so is the link.
+        short = f" Numbers here: {company_url(company)}" if _authored(me) else ""
         note = (f"Hi - {source} "
-                f"{company} came up: {lead}. Numbers here: "
-                f"{company_url(company)} - would value your read.")
+                f"{company} came up: {lead}.{short} - would value your read.")
     if len(note) > CONNECTION_LIMIT:
         note = note[:CONNECTION_LIMIT - 1].rsplit(" ", 1)[0] + "…"
     return note
@@ -290,8 +290,8 @@ def followup(company: str, insights: list, sender: dict | None = None) -> str:
                  "hiring daily - postings from company career boards, visa filings",
                  "from the Department of Labor, and a per-technology demand",
                  "index.")),
-              f"Your page is at {company_url(company)} if you want to check the",
-              "figures."),
+              *((f"Your page is at {company_url(company)} if you want to check the",
+                 "figures.") if _authored(me) else ())),
         _para(_intro(me) or "Getting in touch because it seemed worth asking.",
               "Not asking you to forward a resume - I'd genuinely value your read",
               f"on whether this holds up against how {company} actually works."),
@@ -310,8 +310,15 @@ def email(company: str, insights: list, sender: dict | None = None) -> str:
                if _authored(me) else
                "I was looking through a public dataset on data-engineering hiring,"
                " and"),
-              f"{company} stood out: {lead}. The page is {company_url(company)}",
-              "- every figure there traces back to a query."),
+              # The link is the owner's, and only the owner sends it. A visitor
+              # citing a public dataset has no business pointing a stranger at
+              # somebody else's project as though it were their own credential -
+              # and a recipient who follows it lands on a page that belongs to a
+              # third person the message never mentions.
+              (f"{company} stood out: {lead}. The page is {company_url(company)}"
+               if _authored(me) else f"{company} stood out: {lead}."),
+              *(["- every figure there traces back to a query."]
+                if _authored(me) else [])),
         *([_para("I built it end to end: daily ingestion from company career boards",
                  "into a warehouse, dbt models, and a per-technology demand index",
                  "accumulated daily because no public source has one.")]

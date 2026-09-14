@@ -186,8 +186,24 @@ class TestAuthorshipInSomebodyElsesName:
         assert v.passed, v.failures
 
     def test_citing_the_dataset_is_fine_for_a_visitor(self):
+        v = verify("TD Bank stood out. I found this in a public dataset.",
+                   borrowed=True)
+        assert v.passed, v.failures
+
+    def test_a_visitor_may_not_link_to_the_dataset(self):
+        """
+        Even the correct link. The dataset is not theirs to offer: a recipient who
+        clicks it lands on somebody else's project, presented as the sender's own
+        credential by a message that never mentions whose it is. Citing the data is
+        honest; handing over the address as if it were yours is not.
+        """
         v = verify(f"TD Bank stood out. I found this in a public dataset. See {URL}",
                    borrowed=True)
+        assert not v.passed
+        assert any("links to the dataset" in f for f in v.failures), v.failures
+
+    def test_the_owner_still_sends_the_link(self):
+        v = verify(f"TD Bank stood out. I maintain a public dataset. See {URL}")
         assert v.passed, v.failures
 
 
