@@ -154,6 +154,38 @@ def as_events(record: dict) -> list[dict]:
     return events
 
 
+def drafted_email(job_id: str) -> str | None:
+    """
+    The email the recorded run actually produced.
+
+    The run log holds what the agent did, not what it wrote: draft_outreach_email
+    returns the company, the url, the insight count and the verification result,
+    and the text itself goes to the tracker. That is the right split for a log -
+    the same email would otherwise be stored twice and could disagree with itself -
+    but it means the recording has to read the text back from where it was written,
+    exactly as the live service does at service/app.py.
+
+    A failure here is not a build failure. The scenario simply carries no draft and
+    plays as it did before, which is the same thing that happens when the page has
+    no database at all.
+    """
+    try:
+        from db import connect  # noqa: PLC0415
+        conn = connect(autocommit=True)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT draft_email FROM outreach_tracker "
+                            "WHERE source || ':' || job_id = %s", (job_id,))
+                row = cur.fetchone()
+                return row[0] if row and row[0] else None
+        finally:
+            conn.close()
+    except Exception as exc:                                        # noqa: BLE001
+        print(f"  could not read the drafted email ({type(exc).__name__}); "
+              f"the recorded run will play without it")
+        return None
+
+
 def from_log() -> dict | None:
     """The happy path, taken from a real run rather than staged."""
     logs = sorted(glob.glob(str(ROOT / "agent" / "logs" / "run_*.json")))
@@ -164,13 +196,21 @@ def from_log() -> dict | None:
             continue
         for job in data["jobs"]:
             if job.get("outcome") == "email_drafted" and job.get("draft_source") == "model":
-                return {
+                scenario = {
                     "id": "real", "staged": False,
                     "label": f"{job['company']} — a real run",
                     "company": job["company"], "title": job["title"],
                     "note": "An actual run from the log, model-written and verified.",
                     "events": as_events(job),
                 }
+                # Without this the console finishes by announcing a draft and then
+                # shows nothing, which reads as a broken page rather than a
+                # recording. agent.js already types out scenario.draft; it was
+                # never given one.
+                email = drafted_email(job["job_id"])
+                if email:
+                    scenario["draft"] = email
+                return scenario
     return None
 
 

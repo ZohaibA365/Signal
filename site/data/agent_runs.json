@@ -52,7 +52,8 @@
           "note": "Done. Draft written by the model, every figure in it checked against the warehouse.",
           "outcome": "email_drafted"
         }
-      ]
+      ],
+      "draft": "Subject: TD Bank's hiring pace vs. the market\n\nI built a dataset tracking hiring trends across major employers—daily ingestion from career boards, dbt models, and a demand index by tech. It's at https://zohaiba365.github.io/Signal/companies/td-bank/ \n\nI noticed TD Bank posted 370 roles in the last 30 days, roughly 18.5x the median pace I track. You're also emphasizing Power BI at 5.7x the peer rate, and hiring across 16 states.\n\nDoes that velocity match what you're seeing on the engineering side? I'm a Management Engineering student at University of Waterloo looking for a Winter 2027 Data Engineer term, and I'm curious whether TD Bank's demand signal holds up against your actual pipeline."
     },
     {
       "id": "already_contacted",

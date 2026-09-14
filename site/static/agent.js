@@ -117,7 +117,16 @@
     (function step() {
       if (i >= scenario.events.length) {
         running = false;
-        if (scenario.draft) typeOut(scenario.draft);
+        if (scenario.draft) {
+          /* Say whose email this is before showing it. A recorded draft is
+             written in the voice of the person who actually ran it, so a visitor
+             who typed their own name into the boxes above would otherwise read an
+             email that says "I built a dataset" and take it as theirs. The label
+             is the same honesty the drafting itself is held to. */
+          el.mode.textContent = "Recorded run · this is the email the agent wrote "
+            + "for Signal's author, not one written for you — run it live to get yours";
+          typeOut(scenario.draft);
+        }
         return;
       }
       render(scenario.events[i++]);
