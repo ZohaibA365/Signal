@@ -229,3 +229,55 @@ class TestTheVerdictIsExplainable:
                    "See https://example.com/x")
         assert len(v.failures) >= 3, v.failures
         assert v.checks_run == 5
+
+
+class TestAStatisticIsNotAnObservation:
+    """
+    A visitor's message may not contain a percentage or a multiple.
+
+    The insight that read "they mention Kubernetes in 20% of their postings, about
+    3.6x the rate across comparable companies" is no longer generated for a
+    visitor, and that was assumed to settle it. It did not. The model is handed the
+    raw counts and can do the arithmetic itself: on the first live run after the
+    change it wrote "272 posted in the last 30 days - 58% of your 465 total
+    openings", and every number in that sentence traces to a real figure, so the
+    numeric check passed it happily.
+
+    The objection was never that the figures were wrong. It was that the sentence
+    reads like a statistic instead of like something a person noticed - which is a
+    property of the prose, and so needs a check on the prose.
+    """
+
+    @pytest.mark.parametrize("sentence", [
+        "272 posted in the last 30 days, 58% of your 465 total openings",
+        "they mention it in 20 % of their postings",
+        "about 3.6x the rate across comparable companies",
+        "roughly 2 times the median pace",
+        "hiring 4x faster than last year",
+    ])
+    def test_a_statistic_is_refused(self, sentence):
+        v = verify(f"TD Bank stood out. {sentence}", borrowed=True)
+        assert not v.passed
+        assert any("reads as a statistic" in f for f in v.failures), v.failures
+
+    @pytest.mark.parametrize("sentence", [
+        "they are one of the few companies in this dataset that mention Alation",
+        "TD Bank is one of only 13 companies in a dataset of 3,922 that mention it",
+        "their largest open team is Engineering with 678 roles",
+        "they are hiring across 36 states",
+        "12 of their 40 open roles were posted in the last 30 days",
+    ])
+    def test_a_plain_count_is_fine(self, sentence):
+        """
+        Counts were never the complaint, and refusing them would leave nothing
+        concrete to say. "One of only 13 companies" is the whole point of the page.
+        """
+        v = verify(f"TD Bank stood out. {sentence}", borrowed=True)
+        assert not any("reads as a statistic" in f for f in v.failures), v.failures
+
+    def test_the_owner_may_still_use_ratios(self):
+        """His own drafts are built from them, and he is not the one complaining."""
+        v = verify("TD Bank stood out. They mention Apache Spark in 17% of their "
+                   "postings, about 3.1x the rate across the companies I track. "
+                   f"See {URL}")
+        assert v.passed, v.failures

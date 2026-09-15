@@ -66,6 +66,25 @@ AUTHORSHIP_CLAIMS = (
     "pipeline i built", "dataset i built", "that i built",
 )
 
+# Percentages and multiples, which a visitor's message may not contain.
+#
+# The insight that read "they mention Kubernetes in 20% of their postings, about
+# 3.6x the rate across comparable companies" is no longer generated for a visitor,
+# and that was assumed to settle it. It did not: the model is handed the raw counts
+# and can do the arithmetic itself, and on the first live run after the change it
+# wrote "272 posted in the last 30 days - 58% of your 465 total openings". Every
+# number in that sentence traces to a real figure, so the numeric check passed it.
+#
+# The objection was never that the figures were wrong. It was that the sentence
+# reads like a statistic rather than like something a person noticed. That is a
+# property of the prose, so it needs a check on the prose. The prompt asks too, and
+# the prompt is a request; this is the part that holds.
+RATIO = re.compile(
+    r"\d+\s*%"                          # 58%, 20 %
+    r"|\d+(\.\d+)?\s*x\s+(the|their|your|more|higher|faster)"   # 3.6x the rate
+    r"|\d+(\.\d+)?\s*times\s+(the|their|your|more|higher|faster)",
+    re.IGNORECASE)
+
 # The playbook forbids these outright: a requisition number turns a message into a
 # ticket, per outreach/compose.py's rules.
 REQ_NUMBER = re.compile(r"\b(req(uisition)?\.?\s*#?\s*\d+|job\s*id\s*#?\s*\d+)", re.IGNORECASE)
@@ -241,6 +260,13 @@ def verify_draft(text: str, *, company: str, url: str, insights: list[dict],
         for phrase in AUTHORSHIP_CLAIMS:
             if phrase in lowered:
                 failures.append(f"claims to have built the dataset: {phrase!r}")
+    # 7. Statistics, in a message that is supposed to read like an observation.
+    if borrowed:
+        checks += 1
+        for match in RATIO.finditer(body):
+            failures.append(f"reads as a statistic rather than an observation: "
+                            f"{match.group(0).strip()!r}")
+
     if REQ_NUMBER.search(body):
         failures.append("contains a requisition number, which the playbook forbids")
 

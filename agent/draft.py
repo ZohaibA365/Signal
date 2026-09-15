@@ -121,7 +121,11 @@ def _prompt(company: str, url: str, insights: list[dict], sender: dict, *,
          "THE SENDER did NOT build this dataset - they are citing it. Never write "
          "that they built, maintain or run it, and do NOT include the link or any "
          "other URL: it is somebody else's project and the sender cannot offer it "
-         "as their own. State the observation and stop."),
+         "as their own. State the observation and stop.\n"
+         "Write NO percentages and NO multiples - not '58% of their roles', not "
+         "'3x the rate'. Do not compute one from the counts you are given either. "
+         "The observations below are phrased the way they should be repeated: as "
+         "something a person noticed, not as a statistic."),
         "",
         "THE SENDER:",
         f"  name: {sender.get('name') or '(unnamed - do not invent one)'}",
