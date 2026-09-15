@@ -24,7 +24,13 @@ for _sub in ("storage", "outreach", "agent"):
     sys.path.insert(0, os.path.join(_ROOT, _sub))
 
 from compose import _sender, baseline_companies, drafts_for  # noqa: E402
-from insights import collection_days, load_market, peer_stats  # noqa: E402
+from insights import (  # noqa: E402
+    collection_days,
+    load_market,
+    load_tech_meta,
+    peer_stats,
+    tech_breadth,
+)
 from schemas import (  # noqa: E402
     ToolResult,
     draft_is_allowed,
@@ -63,6 +69,11 @@ class DraftingContext:
         self.market = load_market(cur)
         self.peers = peer_stats(cur, baseline_companies(cur, companies))
         self.days = collection_days(cur)
+        # How many companies mention each technology, and what each one is called.
+        # Corpus-wide and identical for every company in the batch, so they are
+        # fetched once here rather than per draft.
+        self.breadth = tech_breadth(cur)
+        self.tech_meta = load_tech_meta(cur)
         # Whose message this is, stated rather than guessed. This used to read
         # `sender or _sender()`, which inferred it: a falsy sender - None, or the
         # empty dict a visitor who filled in nothing produces - silently became
@@ -159,7 +170,9 @@ def draft_outreach_email(cur, job_id: str, company: str, context: DraftingContex
                           detail=status.data["reason"], data={"job_id": job_id})
 
     template = drafts_for(cur, stored_company, context.peers, context.market,
-                          context.days, context.sender, owner=context.owner)
+                          context.days, context.sender, owner=context.owner,
+                          breadth=getattr(context, "breadth", None),
+                          tech_meta=getattr(context, "tech_meta", None))
     if template.get("error"):
         return ToolResult("draft_outreach_email", False,
                           detail=f"cannot draft for {stored_company}: {template['error']}",

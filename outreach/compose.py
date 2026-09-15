@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from candidate_profile import PROFILE  # noqa: E402
 from db import connect  # noqa: E402
+from fields import categories_for  # noqa: E402
 from insights import (  # noqa: E402
     _fetch_facts,
     build_insights,
@@ -267,7 +268,8 @@ def baseline_companies(cur, names: list[str]) -> list[str]:
 
 
 def drafts_for(cur, company: str, peers: dict, market: dict, days: int,
-               you: dict | None = None, *, owner: bool = False) -> dict:
+               you: dict | None = None, *, owner: bool = False,
+               breadth: dict | None = None, tech_meta: dict | None = None) -> dict:
     """
     The three messages for one company, for whoever is sending them.
 
@@ -281,8 +283,15 @@ def drafts_for(cur, company: str, peers: dict, market: dict, days: int,
     facts = _fetch_facts(cur, company)
     if not facts or not facts.get("roles"):
         return {"company": company, "error": "no postings stored"}
+    # What the visitor said they do decides which of this company's unusual tools
+    # is worth opening with. Unrecognised or blank means no preference, and the
+    # rarest tool leads instead - which is the common case and a fine one.
+    categories = categories_for((you or {}).get("program"))
     insights = build_insights(company, facts, peers, market, days,
-                              voice="owner" if owner else "neutral")
+                              voice="owner" if owner else "neutral",
+                              audience="owner" if owner else "visitor",
+                              breadth=breadth, categories=categories,
+                              tech_meta=tech_meta)
     if not insights:
         return {"company": company, "error": "no usable insight"}
 

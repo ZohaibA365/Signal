@@ -173,7 +173,10 @@ def collection_days(cur) -> int:
 
 
 def build_insights(company: str, facts: dict, peers: dict, market: dict,
-                   days_collected: int = 0, voice: str = "owner") -> list[Insight]:
+                   days_collected: int = 0, voice: str = "owner",
+                   audience: str = "owner", breadth: dict | None = None,
+                   categories: frozenset[str] | None = None,
+                   tech_meta: dict | None = None) -> list[Insight]:
     """
     The observations worth putting in a message.
 
@@ -182,9 +185,22 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
     dataset and false of anybody else - and used to be corrected further downstream
     by a find-and-replace over three hard-coded phrases. That worked until a fourth
     phrase existed. Said correctly here, there is nothing left to correct.
+
+    `audience` decides whether ratios are generated at all. A visitor's email used
+    to open "they mention Kubernetes in 20% of their postings, about 3.6x the rate
+    across comparable companies" - a sentence with the same shape for every company
+    and every sender, which reads as a statistic rather than as something a person
+    noticed. Those two kinds are not produced for a visitor, rather than produced
+    and then avoided, so neither the template nor the model can reach for one.
+
+    In their place, `rare_tool`: the tool this employer uses that almost nobody
+    else in the index does, chosen to match what the visitor said they do. It needs
+    `breadth` (from tech_breadth), `categories` (from fields.categories_for) and
+    `tech_meta`; without them it is simply not produced.
     """
     peer_group = ("the companies I track" if voice == "owner"
                   else "comparable companies")
+    for_visitor = audience == "visitor"
     out: list[Insight] = []
     roles, last30, prior30 = facts["roles"], facts["last_30d"], facts["prior_30d"]
 
@@ -242,7 +258,7 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
     # goes to someone at that company: a ratio against a broad baseline is a
     # weaker claim than a ratio against true peers, and describing it as the
     # latter would be overclaiming.
-    if peers.get("median_last_30d") and last30 >= 3:
+    if not for_visitor and peers.get("median_last_30d") and last30 >= 3:
         ratio = last30 / peers["median_last_30d"]
         if ratio >= 1.8 or ratio <= 0.55:
             comparison = f"{ratio:.1f}x" if ratio >= 1 else f"{1/ratio:.1f}x below"
@@ -260,7 +276,7 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
     # they actually have is the single most damaging error available here, so
     # the comparison is only made in the positive direction, where the
     # evidence is a count that exists rather than one that does not.
-    if peers.get("stack_counts") and facts["roles"] >= 20:
+    if not for_visitor and peers.get("stack_counts") and facts["roles"] >= 20:
         for slug, n in facts["stack"][:12]:
             if slug in UBIQUITOUS or n < 3:
                 continue
@@ -283,6 +299,34 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
                 ))
                 break
 
+    # ---- what makes them unusual, for this particular reader ----------------
+    # Deliberately carries no number in the sentence. The figures are in the
+    # evidence, where they can be audited and where allowed_numbers() picks them
+    # up, but the claim a recipient reads is a plain one: hardly anybody else says
+    # this. That is also the claim a general-purpose model cannot make, because it
+    # requires having looked at everyone else.
+    for tool in rare_tools(facts.get("stack") or [], breadth or {},
+                           categories or frozenset(), tech_meta or {}):
+        if _is_own_product(company, tool["slug"], tool["name"]):
+            continue
+        out.append(Insight(
+            "peer", "rare_tool",
+            # "they are", because every sentence here is dropped in after a colon
+            # - "Capital One stood out: ..." - and a subjectless fragment reads as
+            # a mistake there. The other kinds already start with "they" or a count.
+            f"they are one of the few companies in this dataset that mention "
+            f"{tool['name']} in job postings at all",
+            {"tech": tool["slug"],
+             "their_postings": tool["their_postings"],
+             "companies_mentioning": tool["companies_mentioning"],
+             "corpus_companies": tool["corpus_companies"],
+             "in_field": tool["in_field"]},
+            # Above everything else, because it is the reason the email is worth
+            # sending. rare_tools() has already ordered them by relevance.
+            strength=95,
+        ))
+        break
+
     # ---- tier 3: against the market ----------------------------------------
     for slug, n in facts["stack"][:8]:
         m = market.get(slug)
@@ -299,6 +343,88 @@ def build_insights(company: str, facts: dict, peers: dict, market: dict,
             break
 
     out.sort(key=lambda i: -i.strength)
+    return out
+
+
+# How unusual a tool has to be before "one of the few companies that mentions it"
+# is a true sentence. Two percent of a 3,900-company index is about 78 employers -
+# rare enough that the claim holds, common enough that most companies have one.
+RARE_TOOL_MAX_SHARE = 0.02
+
+# And how committed the company has to be to it. Without this floor a single
+# posting that happens to name Firebolt becomes the headline fact about a company
+# with two thousand open roles, which is true and worthless.
+RARE_TOOL_MIN_POSTINGS = 3
+
+
+def tech_breadth(cur) -> dict:
+    """
+    How many distinct companies in the index mention each technology.
+
+    The measure behind the opening line of every visitor's email, and the thing a
+    general-purpose model cannot know: not how often a company says "Dask", but how
+    few other employers say it at all. Counted over companies rather than postings
+    on purpose - one company with four hundred postings mentioning a tool does not
+    make that tool common.
+
+    Run once per batch and held on the drafting context, like peer_stats. It is a
+    single scan of posting_technologies and the answer is the same for every
+    company being drafted for.
+    """
+    cur.execute("""
+        SELECT count(DISTINCT company_name)::int
+        FROM raw_postings WHERE company_name IS NOT NULL
+    """)
+    total = int(cur.fetchone()[0] or 0)
+
+    cur.execute("""
+        SELECT pt.tech_slug, count(DISTINCT r.company_name)::int
+        FROM posting_technologies pt
+        JOIN raw_postings r ON r.source = pt.source AND r.job_id = pt.job_id
+        WHERE r.company_name IS NOT NULL
+        GROUP BY 1
+    """)
+    return {"companies": total, "per_tech": dict(cur.fetchall())}
+
+
+def rare_tools(stack: list, breadth: dict, categories: frozenset[str],
+               tech_meta: dict) -> list[dict]:
+    """
+    The tools this company uses that almost nobody else does, most relevant first.
+
+    Relevance is the visitor's own field: an ML tool leads for somebody who said
+    they do machine learning, and is just noise for somebody who said they are a
+    mechanical engineer. When the field matches nothing here - which is the common
+    case, and fine - every rare tool is equally eligible and the rarest wins.
+    """
+    total = breadth.get("companies") or 0
+    per_tech = breadth.get("per_tech") or {}
+    if not total:
+        return []
+
+    out = []
+    for slug, mine in stack:
+        if slug in UBIQUITOUS or mine < RARE_TOOL_MIN_POSTINGS:
+            continue
+        meta = tech_meta.get(slug) or {}
+        if meta.get("is_ubiquitous"):
+            continue
+        holders = per_tech.get(slug)
+        if not holders or holders / total > RARE_TOOL_MAX_SHARE:
+            continue
+        out.append({
+            "slug": slug,
+            "name": meta.get("name") or slug.replace("_", " ").title(),
+            "category": meta.get("category") or "",
+            "their_postings": int(mine),
+            "companies_mentioning": int(holders),
+            "corpus_companies": total,
+            "in_field": bool(categories) and meta.get("category") in categories,
+        })
+
+    # In-field first, then genuinely rarest. Sorting by rarity alone would hand an
+    # AI engineer a mainframe scheduler because six companies mention it.
+    out.sort(key=lambda t: (not t["in_field"], t["companies_mentioning"]))
     return out
 
 
@@ -335,6 +461,23 @@ def peer_stats(cur, companies: list[str]) -> dict:
     """, {"cos": companies})
     stats["stack_counts"] = {s: float(n) for s, n in cur.fetchall()}
     return stats
+
+
+def load_tech_meta(cur) -> dict:
+    """
+    Display name, category and the ubiquity flag for every technology.
+
+    market_demand only carries the technologies the daily snapshot tracks - 46 of
+    120 - so a rare tool would usually have no name there and would be rendered as
+    its slug. dim_technology has all of them, and it is where is_ubiquitous is
+    already decided centrally.
+    """
+    cur.execute("""
+        SELECT tech_slug, tech_name, category, coalesce(is_ubiquitous, false)
+        FROM dim_technology
+    """)
+    return {slug: {"name": name, "category": category, "is_ubiquitous": ubiq}
+            for slug, name, category, ubiq in cur.fetchall()}
 
 
 def load_market(cur) -> dict:

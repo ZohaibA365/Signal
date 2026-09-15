@@ -119,8 +119,11 @@ def test_the_blank_form_still_produces_a_sendable_email():
     """
     email = messages("Capital One", INSIGHTS, {})["email"]
     assert "Capital One" in email
-    assert "Kubernetes" in email
     assert email.startswith("Subject:")
+    # Some real observation from the warehouse reached the page. It used to be the
+    # Kubernetes ratio; a visitor's lead now ranks that below a plain count, and
+    # pinning the specific sentence here would just pin the ranking twice.
+    assert any(i.text[:24] in email for i in INSIGHTS)
 
 
 @pytest.mark.parametrize("field,typed,expected", [
@@ -231,6 +234,8 @@ class TestTheRouteThatActuallyLeaked:
         monkeypatch.setattr(tools_mod, "peer_stats", lambda cur, names: {})
         monkeypatch.setattr(tools_mod, "collection_days", lambda cur: 90)
         monkeypatch.setattr(tools_mod, "baseline_companies", lambda cur, names: names)
+        monkeypatch.setattr(tools_mod, "tech_breadth", lambda cur: {})
+        monkeypatch.setattr(tools_mod, "load_tech_meta", lambda cur: {})
 
         context = tools_mod.DraftingContext(None, ["Capital One"], given)
 
@@ -246,6 +251,8 @@ class TestTheRouteThatActuallyLeaked:
         monkeypatch.setattr(tools_mod, "peer_stats", lambda cur, names: {})
         monkeypatch.setattr(tools_mod, "collection_days", lambda cur: 90)
         monkeypatch.setattr(tools_mod, "baseline_companies", lambda cur, names: names)
+        monkeypatch.setattr(tools_mod, "tech_breadth", lambda cur: {})
+        monkeypatch.setattr(tools_mod, "load_tech_meta", lambda cur: {})
 
         context = tools_mod.DraftingContext(None, ["Capital One"], owner=True)
         assert context.owner is True
@@ -266,3 +273,72 @@ class TestTheRouteThatActuallyLeaked:
                 if kw.arg == "owner":
                     assert isinstance(kw.value, ast.Constant) and kw.value.value is False, (
                         f"service/app.py:{node.lineno} claims ownership")
+
+
+class TestNoStatisticsInAVisitorsEmail:
+    """
+    The complaint that prompted the rewrite.
+
+    The email opened with "they mention Kubernetes in 20% of their postings, about
+    3.6x the rate across comparable companies" - a ratio, identical in shape for
+    every company and every sender. The fix is upstream, in build_insights, which
+    does not generate either ratio kind for a visitor. This is the guard that says
+    so from the other end: whatever the composer does, the finished message has no
+    percentage and no multiple in it.
+    """
+
+    RATIO_MARKERS = ("%", "x the rate", "x the median", "times the rate")
+
+    # What build_insights actually produces for a visitor: the unusual tool, and
+    # plain counts. The module-level INSIGHTS above deliberately still contains the
+    # old ratio sentence, because the owner's drafts legitimately use it - and
+    # feeding it to the visitor composer proves only that the composer prints what
+    # it is given, which it does. The guarantee is upstream, where that kind is
+    # never generated for a visitor (tests/test_rare_tool.py), and this is the
+    # other end of it: given a visitor's real insight set, nothing statistical
+    # survives into any of the three messages.
+    VISITOR_INSIGHTS = [
+        _Insight("they are one of the few companies in this dataset that mention "
+                 "Kubeflow in job postings at all",
+                 tier="peer", kind="rare_tool",
+                 evidence={"tech": "kubeflow", "companies_mentioning": 30,
+                           "corpus_companies": 3922, "their_postings": 12}),
+        _Insight("their largest open team is Engineering with 678 roles",
+                 tier="company", kind="team_focus",
+                 evidence={"department": "Engineering", "roles": 678}),
+        _Insight("they are hiring across 14 states",
+                 tier="company", kind="geography", evidence={"states": 14}),
+    ]
+
+    @pytest.mark.parametrize("shape", FORM_SHAPES.keys())
+    @pytest.mark.parametrize("channel", ["email", "connection", "followup"])
+    def test_no_percentage_or_multiple_reaches_the_reader(self, shape, channel):
+        text = messages("Capital One", self.VISITOR_INSIGHTS,
+                        FORM_SHAPES[shape])[channel]
+        for marker in self.RATIO_MARKERS:
+            assert marker not in text.lower(), (
+                f"the {channel} for '{shape}' contains {marker!r}")
+
+    def test_the_unusual_tool_leads_when_there_is_one(self):
+        """
+        Ordering, not availability: a rare_tool insight must beat a plain count
+        even when the count is listed first.
+        """
+        from visitor import _visitor_lead  # noqa: PLC0415
+
+        volume = _Insight("140 of their 900 open roles were posted in the last 30 days",
+                          tier="company", kind="recent_volume")
+        rare = _Insight("they are one of the few companies in this dataset that "
+                        "mention Kubeflow in job postings at all",
+                        tier="peer", kind="rare_tool")
+        lead, _ = _visitor_lead([volume, rare])
+        assert "Kubeflow" in lead
+
+    def test_a_company_with_no_unusual_tool_still_gets_an_email(self):
+        """The silent fallback: an ordinary count, not an empty message."""
+        from visitor import _visitor_lead  # noqa: PLC0415
+
+        volume = _Insight("140 of their 900 open roles were posted in the last 30 days",
+                          tier="company", kind="recent_volume")
+        lead, _ = _visitor_lead([volume])
+        assert "900 open roles" in lead

@@ -33,7 +33,38 @@ from __future__ import annotations
 # pure text helper with no notion of who is sending - a possessive apostrophe, a
 # paragraph joiner, the choice of which insight leads. The moment something here
 # needs a profile, it belongs in compose.py instead.
-from compose import CONNECTION_LIMIT, _lead, _para, possessive
+from compose import CONNECTION_LIMIT, _para, possessive
+
+# What a visitor's message opens with, best first. rare_tool is the whole point -
+# the thing about this employer that a general-purpose model could not tell them,
+# because knowing it requires having looked at every other employer. The rest are
+# ordinary counts. No ratio appears here at all: build_insights does not generate
+# one for a visitor, and this is the second place that is true.
+LEAD_ORDER = ("rare_tool", "team_focus", "leading_tech", "geography",
+              "pace_change", "recent_volume")
+
+
+def _visitor_lead(insights: list) -> tuple[str, str | None]:
+    """
+    The opening fact, and a second one that says something different.
+
+    compose._lead() ranks by tier and was written for the owner's messages, where
+    a peer ratio is the strongest thing available. A visitor gets no ratios, so
+    ranking is by what actually reads well to a stranger: the unusual tool first,
+    then what they are hiring and where.
+    """
+    if not insights:
+        return "", None
+
+    def rank(insight) -> int:
+        kind = getattr(insight, "kind", "")
+        return LEAD_ORDER.index(kind) if kind in LEAD_ORDER else len(LEAD_ORDER)
+
+    ordered = sorted(insights, key=rank)
+    lead = ordered[0]
+    second = next((i.text for i in ordered[1:]
+                   if i.kind != lead.kind and i.tier != lead.tier), None)
+    return lead.text, second
 
 # One phrase, defined once, for where the numbers came from. A visitor can say
 # they were reading a public dataset; they cannot say whose it is, because they do
@@ -125,7 +156,7 @@ def _signature(you: dict) -> list[str]:
 
 def email(company: str, insights: list, you: dict) -> str:
     """Cold email. ~105 words, and the subject line carries the fact."""
-    lead, _ = _lead(insights)
+    lead, _ = _visitor_lead(insights)
     return "Subject: {}\n\n{}".format(
         f"{possessive(company)} hiring, from the data side",
         "\n\n".join([
@@ -140,7 +171,7 @@ def email(company: str, insights: list, you: dict) -> str:
 
 def connection_note(company: str, insights: list, you: dict) -> str:
     """LinkedIn connection note. Hard 300-character cap, so one fact only."""
-    lead, _ = _lead(insights)
+    lead, _ = _visitor_lead(insights)
     intro = _intro(you).rstrip(".")
     note = (f"Hi - {SOURCE_CONNECTION} {company} came up: {lead}. "
             f"{intro}{' - ' if intro else ''}would value your read on it.")
@@ -156,7 +187,7 @@ def connection_note(company: str, insights: list, you: dict) -> str:
 
 def followup(company: str, insights: list, you: dict) -> str:
     """Sent after a connection request is accepted. ~120 words."""
-    lead, second = _lead(insights)
+    lead, second = _visitor_lead(insights)
     # `second` is a clause about the company ("220 of their 997 open roles were
     # posted in the last 30 days"), so it needs a connector that takes a clause.
     # "They also showed up as <clause>" does not parse.
