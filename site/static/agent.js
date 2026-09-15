@@ -177,6 +177,10 @@
           var parts = buffer.split("\n\n");
           buffer = parts.pop();
           parts.forEach(function (part) {
+            /* ':' opens an SSE comment. The service sends one every few seconds
+               while the model is writing, so the connection is never idle long
+               enough for a proxy to cut it. There is nothing in it to render. */
+            if (part.trim().charAt(0) === ":") return;
             var body = part.replace(/^data: ?/gm, "").trim();
             if (!body) return;
             try {

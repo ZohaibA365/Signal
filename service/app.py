@@ -66,6 +66,10 @@ DRAFT_MODEL = os.getenv("AGENT_DRAFT_MODEL", MODEL)
 # point at which ending cleanly beats continuing to wait.
 RUN_TIMEOUT_S = float(os.getenv("AGENT_RUN_TIMEOUT_S", "45"))
 
+# How often to write something - anything - while the run is thinking. Well under
+# the idle window of any proxy that sits in front of this.
+HEARTBEAT_S = float(os.getenv("AGENT_HEARTBEAT_S", "5"))
+
 
 def demo_connection():
     """
@@ -293,11 +297,23 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str,
                                                     "stopped."})
                 return
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                # Never wait the whole remaining budget in one go. Writing the
+                # email is a single model call that produces no events for ten or
+                # fifteen seconds, and a stream that goes quiet that long is cut by
+                # the proxy in front of this service - the visitor's connection
+                # ended after "clear to draft" with no further event at all, which
+                # the page reads as a failure and answers with a recording. A
+                # comment line every few seconds keeps the connection alive and
+                # says nothing; SSE defines ':' as a comment for exactly this.
+                event = await asyncio.wait_for(
+                    queue.get(), timeout=min(HEARTBEAT_S, remaining))
             except TimeoutError:
-                yield sse({"kind": "error", "note": "That run took too long and was "
-                                                    "stopped."})
-                return
+                if time.monotonic() >= deadline:
+                    yield sse({"kind": "error", "note": "That run took too long "
+                                                        "and was stopped."})
+                    return
+                yield ": keepalive\n\n"
+                continue
             kind = event.get("kind")
             if kind == "_end":
                 return
