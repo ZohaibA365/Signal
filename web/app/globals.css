@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * The two palettes, side by side so they can be compared rather than discovered.
+ *
+ * Dark is the default because the site is dark today and because this is a tool
+ * people keep open. Light is a real design, not an inversion: the accent darkens
+ * to #0F9D63 because #3DDC91 on white is unreadable, and the greys are warmed
+ * slightly so a white page does not glare.
+ *
+ * Channels are space-separated RGB triples rather than hex, which is what lets
+ * Tailwind's `/<alpha-value>` work - `bg-accent/10` needs the channels, not a hex
+ * string.
+ */
+@layer base {
+  :root {
+    --c-bg: 11 13 15; /* #0B0D0F */
+    --c-surface: 19 22 25; /* #131619 */
+    --c-raised: 26 30 34; /* #1A1E22 */
+    --c-line: 35 40 45; /* #23282D */
+    --c-line-strong: 51 58 65; /* #333A41 */
+    --c-text: 232 235 237; /* #E8EBED */
+    --c-text-2: 152 161 169; /* #98A1A9 */
+    --c-text-3: 102 112 121; /* #667079 */
+    --c-accent: 61 220 145; /* #3DDC91 */
+    --c-accent-dim: 18 54 42; /* #12362A */
+    --c-accent-fg: 11 13 15; /* #0B0D0F */
+    --c-ok: 61 220 145;
+    --c-ok-dim: 18 54 42;
+    --c-warn: 224 163 62; /* #E0A33E */
+    --c-warn-dim: 51 40 15;
+    --c-stop: 255 107 90; /* #FF6B5A */
+    --c-stop-dim: 58 29 25;
+
+    color-scheme: dark;
+  }
+
+  /* System preference, unless an explicit choice overrides it. Both directions
+     are handled, so a light OS with the toggle set to dark stays dark. */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --c-bg: 255 255 255;
+      --c-surface: 247 248 249; /* #F7F8F9 */
+      --c-raised: 255 255 255;
+      --c-line: 228 231 234; /* #E4E7EA */
+      --c-line-strong: 203 209 214; /* #CBD1D6 */
+      --c-text: 18 22 26; /* #12161A */
+      --c-text-2: 90 99 107; /* #5A636B */
+      --c-text-3: 133 142 150; /* #858E96 */
+      --c-accent: 15 157 99; /* #0F9D63 */
+      --c-accent-dim: 224 244 235;
+      --c-accent-fg: 255 255 255;
+      --c-ok: 15 157 99;
+      --c-ok-dim: 224 244 235;
+      --c-warn: 138 101 22; /* #8A6516 */
+      --c-warn-dim: 250 242 224;
+      --c-stop: 192 57 43; /* #C0392B */
+      --c-stop-dim: 252 232 230;
+
+      color-scheme: light;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --c-bg: 255 255 255;
+    --c-surface: 247 248 249;
+    --c-raised: 255 255 255;
+    --c-line: 228 231 234;
+    --c-line-strong: 203 209 214;
+    --c-text: 18 22 26;
+    --c-text-2: 90 99 107;
+    --c-text-3: 133 142 150;
+    --c-accent: 15 157 99;
+    --c-accent-dim: 224 244 235;
+    --c-accent-fg: 255 255 255;
+    --c-ok: 15 157 99;
+    --c-ok-dim: 224 244 235;
+    --c-warn: 138 101 22;
+    --c-warn-dim: 250 242 224;
+    --c-stop: 192 57 43;
+    --c-stop-dim: 252 232 230;
+
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans text-body antialiased;
+  }
+
+  /* One focus treatment for the whole site, defined once. Keyboard only - a mouse
+     click should not leave a ring behind it. */
+  :focus-visible {
+    @apply outline-none shadow-focus rounded-sm;
+  }
+
+  ::selection {
+    @apply bg-accent/25;
+  }
+
+  /* Figures line up in columns everywhere on this site. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* The two motion utilities the whole site uses. Written once so a component
+     cannot invent its own timing. */
+  .transition-base {
+    @apply transition-colors duration-base ease-out;
+  }
+  .transition-fast {
+    @apply transition-all duration-fast ease-out;
+  }
+}

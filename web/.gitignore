@@ -1,0 +1,9 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+lib/search.built.mjs
+# Exported from the warehouse by site/export_data.py at build time. Regenerated on
+# every build and several megabytes; there is no reason for it to be in history.
+data/
+public/data/
