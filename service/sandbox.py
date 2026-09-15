@@ -160,7 +160,15 @@ def seed(cur) -> None:
 # visitor tries becomes "already contacted", so within a week the only outcome
 # anybody sees is the duplicate rail and the happy path is unreachable. Seeded rows
 # are exempt, because the duplicate rail needs something permanent to fire against.
-VISITOR_ROW_TTL_HOURS = 2
+#
+# Two hours was far too long, and the reason is that this table is shared by
+# everyone. One person trying SpaceX made SpaceX unavailable to every other visitor
+# for the rest of the afternoon - and what they saw was not an explanation, it was
+# their own posting being refused with "already contacted" by a tool they had never
+# used before. Fifteen minutes still demonstrates the rail to somebody who runs the
+# same company twice in a row, which is the only time it is worth demonstrating to
+# them, and the seeded rows demonstrate it on purpose and permanently.
+VISITOR_ROW_TTL_MINUTES = int(os.getenv("AGENT_VISITOR_ROW_TTL_MINUTES", "15"))
 
 # Reset rather than delete, and that is not a stylistic choice. The demo role has
 # SELECT, INSERT and UPDATE on this table and no DELETE, so the first version of
@@ -176,15 +184,15 @@ SWEEP_SQL = """
            draft_email = NULL, draft_connection = NULL, draft_followup = NULL,
            draft_source = NULL, notes = 'expired visitor run, reset',
            updated_at = now()
-     WHERE updated_at < now() - make_interval(hours => %s)
+     WHERE updated_at < now() - make_interval(mins => %s)
        AND status <> 'not_contacted'
        AND coalesce(notes, '') NOT LIKE 'seeded%%'
 """
 
 
-def sweep(cur, hours: int = VISITOR_ROW_TTL_HOURS) -> int:
+def sweep(cur, minutes: int = VISITOR_ROW_TTL_MINUTES) -> int:
     """Return expired visitor rows to their starting state. Safe to call per run."""
-    cur.execute(SWEEP_SQL, (hours,))
+    cur.execute(SWEEP_SQL, (minutes,))
     return cur.rowcount
 
 
