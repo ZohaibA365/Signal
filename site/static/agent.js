@@ -14,7 +14,14 @@
   "use strict";
 
   var API = window.SIGNAL_AGENT_API || "";      // set when the service exists
-  var LIVE_TIMEOUT = 2000;                       // ms to wait before falling back
+  /* How long to wait for the service to START answering before giving up on it.
+     Two seconds was chosen when this endpoint did nothing but exist. It now opens
+     a Postgres connection and resolves the pasted text before the first event, and
+     the first byte measures 0.7-1.1s on a warm service - so two seconds was inside
+     the noise, and any cold connection fell back to a recording while the service
+     was working perfectly. This bounds "the service is dead", which it still does;
+     it is not a budget for the whole run, which has its own on the server. */
+  var LIVE_TIMEOUT = 8000;
   var STEP_PAUSE = 620;                          // ms between steps when replaying
   var TYPE_SPEED = 9;                            // ms per character for the draft
 
@@ -109,11 +116,15 @@
     })();
   }
 
-  function replay(scenario) {
+  /* `why` is the line printed under the console, and it has to be true.
+     Playing a recording on arrival is not the same event as a live run failing,
+     and saying "live drafting is unavailable right now" before anything has been
+     attempted told every arriving visitor the page was broken. */
+  function replay(scenario, why) {
     running = true;
-    reset(scenario.staged
+    reset(why || (scenario.staged
       ? "Recorded run · the model's misbehaviour here was scripted; the refusal is real"
-      : "Recorded run · real agent, real validators");
+      : "Recorded run · real agent, real validators"));
     if (scenario.note) line("say", "·", scenario.note);
     line("say", "·", scenario.company + " — " + scenario.title);
 
@@ -122,13 +133,10 @@
       if (i >= scenario.events.length) {
         running = false;
         /* No email is ever typed out from a recording, whoever it was written
-           for. A recorded run now plays only when the database itself cannot be
-           reached - every other case, the model budget included, still writes the
-           visitor a real email from their own details - and in that state there
-           is nothing true to show them. Showing somebody else's message here,
+           for. Every case that can still write the visitor a real email does -
+           the model budget being spent included - so a recording means there was
+           nothing true to show them. Showing somebody else's message here,
            however it was labelled, is what made this page feel broken. */
-        el.mode.textContent = "Recorded run · live drafting is unavailable right "
-          + "now, so no email was written — try again shortly";
         return;
       }
       render(scenario.events[i++]);
@@ -151,8 +159,16 @@
     function fallback() {
       if (fellBack) return;
       fellBack = true;
-      replay(scenarioById(fallbackId));
+      replay(scenarioById(fallbackId),
+             "Recorded run · the live service did not answer, so no email was "
+             + "written for you — try again shortly");
     }
+
+    /* Something on screen before the first event arrives. A second of silence
+       after pressing a button reads as nothing having happened. */
+    running = true;
+    reset("Live run");
+    line("say", "·", "Looking that company up...");
 
     var ctrl = new AbortController();
     var guard = setTimeout(function () { ctrl.abort(); fallback(); }, LIVE_TIMEOUT);
@@ -165,8 +181,6 @@
     }).then(function (res) {
       if (!res.ok || !res.body) throw new Error("no stream");
       clearTimeout(guard);
-      running = true;
-      reset("Live run");
       var reader = res.body.getReader();
       var decoder = new TextDecoder();
       var buffer = "";
@@ -201,7 +215,8 @@
   function start(payload, fallbackId) {
     if (running) return;
     if (API) live(payload, fallbackId);
-    else replay(scenarioById(fallbackId));
+    else replay(scenarioById(fallbackId),
+                "Recorded run · no live service is configured for this page");
   }
 
   /* Whatever the visitor told us about themselves. All optional: an empty object
@@ -221,12 +236,23 @@
     start({ posting: text, sender: sender() }, "real");
   });
 
+  /* Played, not requested. These are recordings of a rail firing, and the server
+     has no "run scenario X" mode - it was being sent {scenario: id} with no
+     posting, finding nothing to resolve, and failing. Every preset click therefore
+     ended on the fallback message, which read as the page being broken when it was
+     the button being wired to the wrong thing. */
   el.presets.addEventListener("click", function (e) {
     var id = e.target.getAttribute("data-scenario");
-    if (!id) return;
-    start({ scenario: id }, id);
+    if (!id || running) return;
+    replay(scenarioById(id));
   });
 
-  // Play the real run once on arrival, so the panel is never an empty box.
-  if (DATA.scenarios.length) replay(scenarioById("real"));
+  /* Play the real run once on arrival, so the panel is never an empty box. This
+     is a sample and says so: nothing has been attempted yet, and the visitor has
+     not typed anything for it to have been attempted with. */
+  if (DATA.scenarios.length) {
+    replay(scenarioById("real"),
+           "A recorded run, so the console is not empty · paste a posting above "
+           + "and press Run to do it live with your own details");
+  }
 })();
