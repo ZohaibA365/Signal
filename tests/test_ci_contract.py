@@ -48,6 +48,9 @@ def declared_packages() -> set[str]:
             names.add(name.replace("-", "_"))
     # Distribution names differ from import names for a handful of packages.
     names |= {"dotenv", "psycopg2", "yaml", "dateutil", "bs4", "PIL"}
+    # Installed as a dependency of something declared above, and imported directly
+    # by name. botocore ships with boto3 and cannot be absent while boto3 is there.
+    names |= {"botocore", "jinja2", "markupsafe", "certifi", "urllib3"}
     return names
 
 
@@ -71,15 +74,164 @@ def first_party() -> set[str]:
 
 
 def module_level_imports(path: Path) -> set[str]:
-    """Top-level package names imported at module scope, not inside a function."""
+    """
+    Every package a test file imports, wherever the import is written.
+
+    This walked module scope only, on the theory that a deferred import is the FIX
+    for an optional dependency. It is half the fix. Moving the import inside a
+    function stops pytest exiting 2 on a collection error, so the other tests still
+    run - but the test doing the importing still fails, and it fails only in CI,
+    because a laptop has the optional package installed. That is precisely the
+    shape of bug this file exists to prevent, and it got through: a test reached
+    clean_sender through service/app.py, which imports FastAPI, which CI does not
+    install.
+
+    So every import counts now, and a file that genuinely needs an optional package
+    says so with pytest.importorskip - which is what the message below asks for and
+    what tests/test_snowflake_key_parses.py already does.
+    """
     tree = ast.parse(path.read_text())
     found: set[str] = set()
-    for node in tree.body:                      # module scope only
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module.split(".")[0])
-    return found
+    return found - skipped_packages(tree)
+
+
+def skipped_packages(tree: ast.Module) -> set[str]:
+    """Packages the file already guards with pytest.importorskip("name")."""
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "importorskip"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)):
+            out.add(node.args[0].value.split(".")[0])
+    return out
+
+
+SKIP_DIRS = {".venv", ".venv-airflow", ".git", "__pycache__", "target",
+             "dbt_packages", "logs", "data", "node_modules"}
+
+
+def search_path(path: Path) -> list[Path]:
+    """
+    The directories this test file puts on sys.path, in the order it puts them.
+
+    Read out of the file rather than guessed, because resolution order decides
+    WHICH module a bare name means. Two files here are called app.py - the public
+    service and the Streamlit dashboard - and they import entirely different third
+    party packages, so guessing would either miss a real breakage or invent one.
+    """
+    dirs = [ROOT]
+    for node in ast.walk(ast.parse(path.read_text())):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        # A docstring is a string constant too, and joining one onto ROOT asks the
+        # filesystem about a path several hundred characters long. Only things
+        # shaped like a single directory name are considered.
+        value = node.value
+        if not value or len(value) > 40 or not re.fullmatch(r"[\w.-]+", value):
+            continue
+        candidate = ROOT / value
+        if candidate.is_dir() and candidate not in dirs:
+            dirs.append(candidate)
+    return dirs
+
+
+@cache
+def first_party_modules() -> dict[str, tuple[Path, ...]]:
+    """Every module this repository provides, by name, in no particular order."""
+    out: dict[str, list[Path]] = {}
+    for file in ROOT.rglob("*.py"):
+        if SKIP_DIRS & set(file.parts):
+            continue
+        out.setdefault(file.stem, []).append(file)
+        # A package directory is a module name too - `import ats` finds
+        # ingestion/ats/. Its __init__ is what importing it runs.
+        if file.name == "__init__.py":
+            out.setdefault(file.parent.name, []).append(file)
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def resolve_module(name: str, dirs: list[Path]) -> Path | None:
+    known = first_party_modules().get(name, ())
+    for directory in dirs:
+        for candidate in known:
+            if candidate.parent == directory:
+                return candidate
+    return known[0] if known else None
+
+
+def required_packages(path: Path, dirs: list[Path], seen: set[Path] | None = None,
+                      top: bool = True, guarded: set[str] | None = None) -> set[str]:
+    """
+    Every third-party package importing this file actually requires.
+
+    Transitively, and that is the point. The direct-imports check passed a test
+    that imported service/app.py - a first-party name, so nothing to object to -
+    while app.py imports FastAPI at module scope, which CI does not install. The
+    test therefore failed in CI and nowhere else, which is the exact failure this
+    file was written to prevent and did not.
+
+    Within the file being checked, an import anywhere counts, including inside a
+    function: a deferred import stops the collection error but still fails the
+    test. Within an imported MODULE, only module scope counts, because that is what
+    importing it runs.
+    """
+    seen = seen if seen is not None else set()
+    if path in seen:
+        return set()
+    seen.add(path)
+
+    tree = ast.parse(path.read_text())
+    nodes = list(ast.walk(tree)) if top else list(tree.body)
+    # A guard applies to everything the guarded import reaches, not only to the
+    # line it sits above: tests/test_dol_spark_runtime.py calls importorskip on
+    # pyspark and then imports the job module, and the job module is what imports
+    # pyspark. Carried down the recursion rather than applied at each level.
+    guarded = (guarded or set()) | skipped_packages(tree)
+
+    names: set[str] = set()
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    names -= guarded
+
+    out: set[str] = set()
+    for name in names:
+        target = resolve_module(name, dirs) if name in first_party_modules() else None
+        if target is not None:
+            out |= required_packages(target, dirs, seen, top=False, guarded=guarded)
+        else:
+            out.add(name)
+    return out
+
+
+@pytest.mark.parametrize("path", TESTS, ids=lambda p: p.name)
+def test_a_test_never_needs_a_package_ci_does_not_install(path):
+    """
+    Transitively. Importing a first-party module imports everything it imports.
+
+    Both times this rule has been broken, the missing package was two steps away:
+    a test imported a module that imported cryptography, and later one that
+    imported FastAPI. Each passed locally, where the optional package happens to be
+    installed, and failed every test in CI.
+    """
+    allowed = declared_packages() | set(sys.stdlib_module_names)
+    offenders = sorted(n for n in required_packages(path, search_path(path))
+                       if n not in allowed)
+    assert not offenders, (
+        f"{path.name} needs {offenders}, which CI does not install - directly or "
+        f"through a first-party module it imports. Import the logic from a module "
+        f"without that dependency, or guard it with pytest.importorskip."
+    )
 
 
 @pytest.mark.parametrize("path", TESTS, ids=lambda p: p.name)

@@ -204,7 +204,7 @@ class TestTheRouteThatActuallyLeaked:
     """
 
     def test_an_empty_form_is_an_empty_sender_not_a_missing_one(self):
-        from app import clean_sender  # noqa: PLC0415
+        from sender import clean_sender  # noqa: PLC0415
 
         for raw in ({}, None, {"name": "   "}, "not a dict", []):
             out = clean_sender(raw)
