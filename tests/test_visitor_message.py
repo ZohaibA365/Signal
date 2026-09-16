@@ -342,3 +342,39 @@ class TestNoStatisticsInAVisitorsEmail:
                           tier="company", kind="recent_volume")
         lead, _ = _visitor_lead([volume])
         assert "900 open roles" in lead
+
+
+class TestTheLeakRailDoesNotBlockHonestVisitors:
+    """
+    The backstop that scans an outgoing draft for the owner's text.
+
+    It originally matched the owner's school and degree as well, which refused the
+    draft of any Waterloo Management Engineering student who typed their own real
+    details - the classmates most likely to open the page. A rail that stops the
+    honest case and catches the dishonest one no better is worse than no rail, so
+    it now matches only what is genuinely the owner's: the dataset's address, and
+    the claim to have built it.
+    """
+
+    @staticmethod
+    def traces(text: str):
+        from leak import owner_traces  # noqa: PLC0415
+
+        return owner_traces(text)
+
+    @pytest.mark.parametrize("sentence", [
+        "I'm a Management Engineering student at University of Waterloo, "
+        "looking for a Winter 2027 co-op.",
+        "I'm a CS student at McGill, looking for a Summer 2027 internship.",
+        "I'm an Ai Engineer at Uwaterloo.",
+    ])
+    def test_a_visitors_own_details_are_never_a_leak(self, sentence):
+        assert self.traces(sentence) == []
+
+    @pytest.mark.parametrize("sentence", [
+        "I built a dataset tracking hiring trends across major employers.",
+        "I maintain a public dataset on data-engineering hiring.",
+        "The page is https://zohaiba365.github.io/Signal/companies/oracle/",
+    ])
+    def test_the_owners_own_text_is_still_caught(self, sentence):
+        assert self.traces(sentence), f"leak not caught: {sentence!r}"

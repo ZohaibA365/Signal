@@ -39,6 +39,7 @@ from events import describe, outcome_note  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
+from leak import OwnerTextLeaked, owner_traces  # noqa: E402
 from sender import clean_sender  # noqa: E402
 from tools import DraftingContext  # noqa: E402
 
@@ -96,40 +97,6 @@ def demo_connection():
 
 def sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
-
-
-class OwnerTextLeaked(RuntimeError):
-    """A draft about to be shown to a visitor carried the owner's identity."""
-
-
-# Everything that would mark a message as the dataset owner's rather than the
-# sender's. Assembled from the profile itself rather than typed out again, so it
-# cannot fall out of date with it.
-def _owner_markers() -> tuple[str, ...]:
-    from candidate_profile import PROFILE  # noqa: PLC0415
-    from compose import SITE_URL  # noqa: PLC0415
-    from verify import AUTHORSHIP_CLAIMS  # noqa: PLC0415
-
-    profile_bits = [PROFILE.get("school", ""), PROFILE.get("program", "")]
-    return tuple(m.lower() for m in
-                 (SITE_URL, *profile_bits, *AUTHORSHIP_CLAIMS) if m)
-
-
-OWNER_MARKERS = _owner_markers()
-
-
-def owner_traces(text: str) -> list[str]:
-    """
-    Anything in this text that belongs to the owner and not to the visitor.
-
-    A backstop, deliberately dumb and deliberately last. Four separate fixes have
-    been made upstream of here - the template, the model prompt, the verifier, the
-    recorded example - and each of them was believed to be complete. What they had
-    in common was that nothing checked the finished message on its way out the
-    door. This does, and it runs no matter which path wrote the text.
-    """
-    lowered = (text or "").lower()
-    return [m for m in OWNER_MARKERS if m in lowered]
 
 
 async def run_stream(posting: str, scenario: str | None, client_ip: str,
