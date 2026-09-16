@@ -30,6 +30,12 @@ data/
 # exact failure this page is built to never have.
 !site/data/
 !site/data/*.json
+
+# Same exception, same reason: the blanket data/ rule above also swallows the
+# warehouse exports the React build reads. Vercel builds Node and cannot run the
+# Python that produces them, so they have to be in the repository.
+!web/data/
+!web/data/*.json
 *.parquet
 *.csv
 # dbt seeds are source code, not data. A blanket *.csv rule silently excluded

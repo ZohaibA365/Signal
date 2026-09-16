@@ -7,3 +7,4 @@ lib/search.built.mjs
 # so it is never committed. The build-time exports ARE committed - Vercel builds
 # Node and cannot run the Python that produces them.
 public/data/
+tsconfig.tsbuildinfo
