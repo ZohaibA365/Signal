@@ -11,7 +11,7 @@
     "parity": "esbuild lib/search.ts --format=esm --target=es2022 --outfile=lib/search.built.mjs --log-level=warning && node scripts/parity.mjs"
   },
   "dependencies": {
-    "next": "15.5.4",
+    "next": "15.5.25",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },

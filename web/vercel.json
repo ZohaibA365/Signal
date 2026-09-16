@@ -1,7 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "next build",
-  "outputDirectory": "out",
   "framework": "nextjs",
   "build": { "env": { "NEXT_PUBLIC_BASE_PATH": "" } }
 }
