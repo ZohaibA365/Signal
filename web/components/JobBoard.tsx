@@ -31,15 +31,31 @@ export function JobBoard({ dataUrl }: { dataUrl: string }) {
 
   return (
     <>
-      <section className="border-b border-line bg-surface">
-        <div className="mx-auto max-w-page px-4 py-7 sm:px-5">
-          <h1 className="font-display text-display-2 font-medium text-text sm:text-display-1">
-            Data &amp; AI jobs
-          </h1>
-          <p className="mt-2 max-w-prose text-body text-text-2">
-            United States and Canada, updated daily. Every role links straight to the
-            employer&rsquo;s own careers page.
-          </p>
+      <section className="border-b border-line">
+        <div className="mx-auto max-w-page px-4 pb-6 pt-8 sm:px-5">
+          {/* Asymmetric: the claim on the left, the figure that backs it on the
+              right. Centring both is the pattern every landing page uses and it
+              says nothing about which of the two is the point. */}
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-prose">
+              {/* Three steps, not two. 44px is the right opening size on a tablet and
+                  too wide on a 390px phone: "every link direct." alone measures wider
+                  than the screen, and a headline that wraps mid-phrase reads as a
+                  mistake. */}
+              <h1 className="font-display text-h1 font-medium leading-[1] text-text sm:text-display-2 lg:text-display-1 lg:leading-[0.98]">
+                Data &amp; AI jobs,
+                <br />
+                <span className="italic text-text-2">every link direct.</span>
+              </h1>
+              <p className="mt-4 text-body text-text-2">
+                United States and Canada, updated daily. Aggregator links are excluded
+                because they break outside the posting&rsquo;s own country.
+              </p>
+            </div>
+            <p className="tabular shrink-0 font-mono text-data text-text-3 lg:text-right">
+              <Counter search={s} />
+            </p>
+          </div>
 
           {/* Seven controls, the same seven the site has today. A grid that reflows
               to one column on a phone rather than a row that scrolls. */}
@@ -139,14 +155,17 @@ export function JobBoard({ dataUrl }: { dataUrl: string }) {
             ))}
           </div>
 
-          <p className="tabular mt-4 font-mono text-data text-text-2" aria-live="polite">
+          <p
+            className="tabular mt-5 border-t border-line pt-3 font-mono text-data text-text-2"
+            aria-live="polite"
+          >
             <Summary search={s} />
           </p>
         </div>
       </section>
 
       <div className="mx-auto max-w-page px-4 py-6 sm:px-5">
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-b border-line">
           {s.shown.map((row, i) => (
             <JobRow key={`${row.t}-${row.c}-${i}`} row={row} prefixes={s.prefixes} />
           ))}
@@ -184,6 +203,18 @@ export function JobBoard({ dataUrl }: { dataUrl: string }) {
   );
 }
 
+/** The size of the searchable set, stated where the claim is made. */
+function Counter({ search }: { search: ReturnType<typeof useJobSearch> }) {
+  if (!search.ready) return null;
+  return (
+    <>
+      {num(search.rows.length)} roles searchable
+      <br />
+      <span className="text-text-3">filtered in your browser</span>
+    </>
+  );
+}
+
 function Summary({ search }: { search: ReturnType<typeof useJobSearch> }) {
   if (search.failed)
     return <>Could not load the role list. Company profiles and the market index still work.</>;
@@ -212,26 +243,32 @@ function JobRow({ row, prefixes }: { row: Row; prefixes: string[] }) {
   const host = hostFor(link);
 
   return (
-    <li className="group py-3">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-4">
+    <li className="group relative transition-base hover:bg-surface">
+      {/* The whole row is the target, with the accent rule appearing on the left
+          rather than the row lifting or glowing. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-px scale-y-0 bg-accent transition-fast group-hover:scale-y-100"
+      />
+      <div className="flex flex-col gap-2 py-4 pl-4 sm:flex-row sm:items-baseline sm:gap-5">
         <div className="min-w-0 flex-1">
           <a
             href={link ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-body font-medium text-text transition-base hover:text-accent"
+            className="font-display text-h3 font-medium text-text transition-base group-hover:text-accent"
           >
             {row.t}
           </a>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-text-2">
-            <span>{row.c}</span>
-            {row.s && <span className="text-text-3">· {row.s}</span>}
-            {row.r === 1 && <span className="text-text-3">· Remote</span>}
-            {host && <span className="text-text-3">· {host}</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label uppercase text-text-3">
+            <span className="text-text-2">{row.c}</span>
+            {row.s && <span>{row.s}</span>}
+            {row.r === 1 && <span>Remote</span>}
+            {host && <span className="normal-case tracking-normal">{host}</span>}
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <LevelTag row={row} />
           <AuthTag row={row} />
           {row.w ? (

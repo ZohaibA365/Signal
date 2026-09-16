@@ -24,7 +24,7 @@ export function Th({
   return (
     <th
       className={cx(
-        "border-b border-line pb-2 text-micro font-medium uppercase text-text-3",
+        "border-b border-line pb-3 text-label uppercase text-text-3",
         numeric ? "text-right" : "text-left",
       )}
     >
@@ -45,7 +45,7 @@ export function Td({
   return (
     <td
       className={cx(
-        "border-b border-line py-2 align-middle",
+        "border-b border-line py-3 align-middle",
         numeric ? "tabular text-right font-mono text-data text-text" : "text-text-2",
         className,
       )}

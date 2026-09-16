@@ -49,3 +49,15 @@ for (const row of retired) {
   written += 1;
 }
 console.log(`redirect stubs written: ${written}`);
+
+// The custom domain, if one is set. GitHub Pages reads it from a CNAME file in the
+// published artifact, so it has to be written into out/ - setting it in the repo
+// has no effect on an Actions deploy.
+const siteUrl = process.env.SITE_URL ?? "";
+if (siteUrl) {
+  const host = new URL(siteUrl).host;
+  if (!host.endsWith("github.io")) {
+    fs.writeFileSync(path.join(OUT, "CNAME"), host + "\n");
+    console.log(`custom domain: wrote CNAME for ${host}`);
+  }
+}

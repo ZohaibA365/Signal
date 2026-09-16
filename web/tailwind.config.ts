@@ -87,16 +87,26 @@ const config: Config = {
     // One scale, eight steps, each with its own line-height and tracking. Named
     // for the job rather than the size, so `text-h2` cannot drift into meaning
     // something different on a different page.
+    // The range is deliberately wide. A page whose largest text is 26px and whose
+    // smallest is 13px has no hierarchy, only sizes - the first version of this
+    // scale was exactly that, and the result read as the same site in a new font.
+    // Display is where the serif earns its place, so it is given room.
     fontSize: {
-      "display-1": ["2.75rem", { lineHeight: "1.04", letterSpacing: "-0.03em" }],
-      "display-2": ["2rem", { lineHeight: "1.08", letterSpacing: "-0.025em" }],
-      h1: ["1.625rem", { lineHeight: "1.15", letterSpacing: "-0.02em" }],
-      h2: ["1.25rem", { lineHeight: "1.25", letterSpacing: "-0.015em" }],
-      h3: ["1rem", { lineHeight: "1.35", letterSpacing: "-0.01em" }],
-      body: ["0.9375rem", { lineHeight: "1.55", letterSpacing: "0" }],
+      "display-1": ["4rem", { lineHeight: "0.98", letterSpacing: "-0.035em" }],
+      "display-2": ["2.75rem", { lineHeight: "1.02", letterSpacing: "-0.03em" }],
+      h1: ["2rem", { lineHeight: "1.1", letterSpacing: "-0.025em" }],
+      h2: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.02em" }],
+      h3: ["1.0625rem", { lineHeight: "1.35", letterSpacing: "-0.01em" }],
+      body: ["0.9375rem", { lineHeight: "1.6", letterSpacing: "0" }],
       small: ["0.84375rem", { lineHeight: "1.5", letterSpacing: "0" }],
+      // Uppercase section labels and column heads. The tracking is what makes
+      // small caps legible rather than cramped, and it is the site's main
+      // structural device.
+      label: ["0.6875rem", { lineHeight: "1.3", letterSpacing: "0.12em" }],
       micro: ["0.75rem", { lineHeight: "1.4", letterSpacing: "0.02em" }],
       data: ["0.8125rem", { lineHeight: "1.4", letterSpacing: "-0.005em" }],
+      // Figures that are the point of the sentence rather than a cell in a table.
+      figure: ["1.75rem", { lineHeight: "1", letterSpacing: "-0.03em" }],
     },
 
     fontWeight: {

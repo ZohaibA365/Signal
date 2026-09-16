@@ -41,9 +41,16 @@
      are handled, so a light OS with the toggle set to dark stays dark. */
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
-      --c-bg: 255 255 255;
-      --c-surface: 247 248 249; /* #F7F8F9 */
-      --c-raised: 255 255 255;
+      /* Off-white, not #FFF. Pure white left nothing above it: `raised` is what
+         every input, button and chip sits on, and at #FFFFFF on a #FFFFFF page it
+         was not raised at all - only a border held those controls together, while
+         the dark theme had three real steps. A page a shade below white restores
+         the step, and takes the glare off a screen that is mostly small text. The
+         cast is very slightly cool, matching the dark ground rather than warming
+         in a different direction. */
+      --c-bg: 250 251 252; /* #FAFBFC */
+      --c-surface: 241 243 245; /* #F1F3F5 - recessed: hover, section grounds */
+      --c-raised: 255 255 255; /* #FFFFFF - above the page, where it belongs */
       --c-line: 228 231 234; /* #E4E7EA */
       --c-line-strong: 203 209 214; /* #CBD1D6 */
       --c-text: 18 22 26; /* #12161A */
@@ -64,9 +71,9 @@
   }
 
   :root[data-theme="light"] {
-    --c-bg: 255 255 255;
-    --c-surface: 247 248 249;
-    --c-raised: 255 255 255;
+    --c-bg: 250 251 252; /* #FAFBFC */
+    --c-surface: 241 243 245; /* #F1F3F5 - recessed: hover, section grounds */
+    --c-raised: 255 255 255; /* #FFFFFF - above the page, where it belongs */
     --c-line: 228 231 234;
     --c-line-strong: 203 209 214;
     --c-text: 18 22 26;

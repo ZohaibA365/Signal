@@ -30,6 +30,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -592,6 +593,18 @@ def build(skip_pages: bool = False) -> None:
                   for u in urls)
         + "</urlset>\n")
     (DIST / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n")
+
+    # A custom domain, if one is configured.
+    #
+    # GitHub Pages reads the domain from a CNAME file inside the PUBLISHED
+    # artifact, not from the repository - this site deploys from an Actions
+    # artifact rather than a branch, so the file has to be written here or the
+    # domain silently reverts on the next deploy. Derived from SITE_URL rather
+    # than duplicated, so the domain is stated in exactly one place.
+    host = urlparse(SITE_URL).netloc
+    if host and not host.endswith("github.io"):
+        (DIST / "CNAME").write_text(f"{host}\n")
+        log.info("Custom domain: wrote CNAME for %s", host)
 
     log.info("Built %s pages in %.1fs -> %s", len(urls), time.time() - started, DIST)
 
