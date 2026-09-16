@@ -1,15 +1,22 @@
 import { JobBoard } from "@/components/JobBoard";
-import { searchMeta } from "@/lib/data";
 
 export const metadata = {
   title: "Data & AI jobs — US and Canada, updated daily",
 };
 
+/**
+ * Where the searchable roles come from.
+ *
+ * The payload is 4MB and is rebuilt by the daily pipeline, so it is fetched from
+ * wherever that pipeline publishes it rather than committed alongside this app.
+ * Two things fall out of that: the repository does not carry a four-megabyte file
+ * that changes every day, and this page shows today's roles even on a build from
+ * last week.
+ */
+const DATA_URL =
+  process.env.NEXT_PUBLIC_JOBS_URL ??
+  "https://zohaiba365.github.io/Signal/data/jobs.json";
+
 export default function Page() {
-  // The payload's own hash pairs the page with the data it was built against, so a
-  // cached page can never render against an incompatible payload. The current site
-  // does this with ?v= on the script tag; here it rides on the fetch URL.
-  const { hash } = searchMeta();
-  const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  return <JobBoard dataUrl={`${base}/data/jobs.json?v=${hash}`} />;
+  return <JobBoard dataUrl={DATA_URL} />;
 }

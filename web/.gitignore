@@ -3,7 +3,7 @@ node_modules/
 out/
 next-env.d.ts
 lib/search.built.mjs
-# Exported from the warehouse by site/export_data.py at build time. Regenerated on
-# every build and several megabytes; there is no reason for it to be in history.
-data/
+# The 4MB search payload is published by the daily pipeline and fetched at runtime,
+# so it is never committed. The build-time exports ARE committed - Vercel builds
+# Node and cannot run the Python that produces them.
 public/data/
