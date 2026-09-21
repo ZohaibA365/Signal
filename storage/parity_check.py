@@ -136,15 +136,38 @@ def databricks_scalars() -> dict[str, int | None] | None:
 
     db = Databricks()
     out: dict[str, int | None] = {}
+    failures = 0
     for name, sql in every_check().items():
         try:
             rows = db.sql(sql)
             # Every value comes back as text over REST, including counts.
             out[name] = int(rows[0][0]) if rows and rows[0][0] is not None else None
-        except SystemExit as exc:
+        except Exception as exc:                          # noqa: BLE001
+            # Not just SystemExit. load_to_databricks raises that for a statement
+            # the warehouse REJECTED, but a warehouse that will not answer at all
+            # fails earlier, in raise_for_status, as requests.HTTPError - and that
+            # one escaped this handler and took the whole parity run down with a
+            # traceback instead of a verdict. The engine being unreachable is a
+            # thing this function is supposed to report, not crash on.
             out[name] = None
-            log.error("  databricks failed on %r: %s", name,
-                      " ".join(str(exc).split())[:100])
+            failures += 1
+            log.error("  databricks failed on %r: %s: %s", name,
+                      type(exc).__name__, " ".join(str(exc).split())[:100])
+
+    # An engine that answered NOTHING is unreachable, not disagreeing.
+    #
+    # Free Edition deactivates a workspace that has gone unused, and every
+    # statement then returns 400 with denyReason INACTIVE. Counting that as
+    # twenty-one failed parity checks says the SQL diverged across engines, which
+    # is false and is the most alarming thing this script can say. The
+    # distinction is the whole point: some answers differing is a real finding,
+    # no answers at all is an infrastructure fact.
+    if failures == len(out):
+        log.warning("Databricks answered none of the %s checks - treating it as "
+                    "unavailable rather than as disagreeing. A Free Edition "
+                    "workspace is deactivated after a period of no use; opening "
+                    "it in a browser reactivates it.", len(out))
+        return None
     return out
 
 
@@ -165,7 +188,15 @@ def main() -> None:
                     a = scalar(pc, sql)
                 except Exception as exc:                      # noqa: BLE001
                     a, pg_err = None, str(exc).strip()[:80]
-                    pg.rollback()
+                    # A dropped connection is the likeliest failure here - Neon
+                    # closes an idle one, and this loop is long. Rolling back a
+                    # connection that is already gone raises InterfaceError, so
+                    # the handler crashed with a traceback and buried the error
+                    # it was written to report.
+                    try:
+                        pg.rollback()
+                    except Exception:                         # noqa: BLE001
+                        pass
                     log.error("  postgres failed on %r: %s", name, pg_err)
                 try:
                     b = scalar(sc, sql)
@@ -201,7 +232,7 @@ def main() -> None:
                      "ok" if r["match"] else "DIFFERS")
 
     if third is None and not args.skip_databricks:
-        log.warning("Databricks was not compared: no host or token configured.")
+        log.warning("Databricks was not compared: not configured, or unreachable.")
 
     # A stale mirror is not a disagreement about SQL, and saying so is the whole
     # point of checking the sources separately.
