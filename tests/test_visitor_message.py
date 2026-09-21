@@ -129,6 +129,12 @@ def test_the_blank_form_still_produces_a_sendable_email():
 @pytest.mark.parametrize("field,typed,expected", [
     ("program", "Ai Engineer", "I'm an Ai Engineer"),
     ("program", "CS student", "I'm a CS student"),
+    # A field of study is not a person and takes no article. This is the sentence
+    # "I'm a Statistics at UBC" used to produce, on the live console, for every
+    # visitor who answered "What you do" with their degree instead of a job title.
+    ("program", "Statistics", "I'm in Statistics"),
+    ("program", "Industrial Design", "I'm in Industrial Design"),
+    ("program", "Data Scientist", "I'm a Data Scientist"),
     ("term", "Summer 2027 internship", "looking for a Summer 2027 internship"),
     ("term", "Winter 2027", "looking for Winter 2027"),
     ("term", "a senior platform role", "looking for a senior platform role"),

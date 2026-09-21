@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "build": { "env": { "NEXT_PUBLIC_BASE_PATH": "" } }
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_BASE_PATH": "",
+      "NEXT_PUBLIC_AGENT_API": "https://signal-production-51b2.up.railway.app"
+    }
+  }
 }

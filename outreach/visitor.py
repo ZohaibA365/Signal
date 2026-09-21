@@ -110,22 +110,46 @@ def _needs_article(phrase: str) -> str:
     return phrase
 
 
+# Head nouns that name a person. Somebody typing one of these has described who
+# they are and the phrase takes an article; anything else is read as a field, which
+# does not. Same discipline as COUNTABLE above: an explicit short list, because the
+# cost of guessing wrong is a wrong word in a message a person actually sends.
+# "a Statistics" was that wrong word - the article was applied unconditionally, so
+# every visitor who typed their degree rather than a job title got it.
+PERSON_NOUNS = ("student", "engineer", "developer", "scientist", "analyst",
+                "researcher", "designer", "manager", "consultant", "architect",
+                "intern", "grad", "graduate", "undergraduate", "major",
+                "programmer", "practitioner", "specialist")
+
+
+def _names_a_person(phrase: str) -> bool:
+    return phrase.rstrip(".,").split(" ")[-1].lower().rstrip("s") in (
+        n.rstrip("s") for n in PERSON_NOUNS)
+
+
 def _about(you: dict) -> str:
     """
-    "I'm a CS student at McGill," from whatever was typed, or nothing.
+    "I'm a CS student at McGill," or "I'm in Statistics at UBC," or nothing.
 
     The words are used exactly as given. The page asks "What you do" and "Where",
     and the answers already contain their own nouns; wrapping them in "student"
     regardless turned "Ai Engineer" into "I'm a Ai Engineer student at Uwaterloo" -
     the wrong article, a job title recast as a degree, and a description of
     somebody the sender is not.
+
+    Which of the two frames applies is decided by the head noun and nothing else.
+    "Data Engineer" names a person and takes an article; "Statistics" and
+    "Industrial Design" name a field and take "in", because "I'm a Statistics at
+    UBC" is not a sentence. "in" is also the one preposition that stays true either
+    way: it says where they are without asserting they are a student, which a
+    professional typing their discipline is not.
     """
     program = (you.get("program") or "").strip()
     school = (you.get("school") or "").strip()
-    if program and school:
-        return f"I'm {_article(program)} {program} at {school},"
     if program:
-        return f"I'm {_article(program)} {program},"
+        me = (f"I'm {_article(program)} {program}" if _names_a_person(program)
+              else f"I'm in {program}")
+        return f"{me} at {school}," if school else f"{me},"
     if school:
         return f"I'm at {school},"
     return ""

@@ -67,11 +67,17 @@ Railway, from `service/Dockerfile`. Environment variables:
 ```
 DEMO_DATABASE_URL      postgres://signal_demo:...@...  (NOT the owner credentials)
 ANTHROPIC_API_KEY      ...
-AGENT_ALLOWED_ORIGINS  https://zohaiba365.github.io
+AGENT_ALLOWED_ORIGINS  https://signal-jobsite.vercel.app
 ```
 
-Then set `SIGNAL_AGENT_API` to the service URL when building the site, and the
-page starts using it. Unset, the page plays recordings and is complete.
+`AGENT_ALLOWED_ORIGINS` must name the origin the site is actually served from. It
+is the whole of the access control here, so a stale value does not degrade the page
+— it fails the preflight and the console silently falls back to recordings.
+
+Then point the frontend at the service URL and the page starts using it:
+`NEXT_PUBLIC_AGENT_API` for the Next build in `web/` (set in `web/vercel.json`),
+`SIGNAL_AGENT_API` for the older Jinja build. Unset, the page plays recordings and
+is complete.
 
 ## Endpoints
 

@@ -2,7 +2,7 @@
 
 **A job board for US and Canadian data roles, built on a warehouse that explains them.**
 
-🔗 **[zohaiba365.github.io/Signal](https://zohaiba365.github.io/Signal/)**
+🔗 **[signal-jobsite.vercel.app](https://signal-jobsite.vercel.app)**
 
 Signal collects data and AI job postings from employers' own career boards, models
 them through a warehouse, and publishes two things: a searchable job board where
@@ -17,33 +17,38 @@ market turned out to be more interesting than any single posting.
 ## What it does
 
 1. **Resolves** each employer to its applicant-tracking system, cached so a name is
-   answered once. 130 boards resolved across Greenhouse, Lever, Ashby, Workday,
-   SmartRecruiters, Workable and Amazon's own API.
+   answered once. Ten adapters — Greenhouse, Lever, Ashby, Workday, SmartRecruiters,
+   Workable, Rippling, Oracle Cloud, Amazon's own API and a shared base — have
+   resolved **1,627** boards out of 8,316 companies tried.
 2. **Ingests** postings from those boards into an S3 data lake, Hive-partitioned by
    source, country and date.
 3. **Loads** them into Postgres with idempotent upserts, so re-runs and backfills are
    safe.
 4. **Transforms** through dbt — staging → intermediate → marts, plus a star schema —
    deduplicating to one row per distinct role.
-5. **Processes** 800,569 Department of Labor visa filings with PySpark, joining them
+5. **Processes** 595,431 Department of Labor visa filings with PySpark, joining them
    to employers so sponsorship is a matter of record rather than inference.
 6. **Extracts** technology mentions with a controlled vocabulary of 120 tools.
 7. **Snapshots** market-wide demand daily, accumulating a time series that exists
    nowhere else.
 8. **Assesses** roles with Claude: work-authorisation eligibility, sponsorship
    signals, fit against a profile, and the reasoning behind each call.
-9. **Publishes** a static site — 640 pages, client-side search, no backend.
+9. **Drafts** cold outreach with a tool-using agent: it looks the company up in the
+   warehouse, finds what is genuinely unusual about their stack, and writes an email
+   about it. Rails in code — not instructions in a prompt — reject any sentence the
+   query results do not support, so it refuses rather than invents.
+10. **Publishes** a static site — **1,248** pages, client-side search, no backend.
 
 ## Architecture
 
 ```
 career boards ─┐
 (Greenhouse,   │
- Lever, Ashby, ├─► S3 data lake ──► Postgres ──► dbt ──► static site
+ Lever, Ashby, ├─► S3 data lake ──► Postgres ──► dbt ──► Next.js export
  Workday,      │   (raw JSON,       (idempotent  (staging → ├─ job search
  SmartRecruit, │    Hive-           upserts)     marts +    ├─ company pages
- Workable,     │    partitioned)                 star       └─ market index
- Amazon)       │                                 schema)
+ Workable,     │    partitioned)                 star       ├─ market index
+ Amazon)       │                                 schema)    └─ outreach agent
 Adzuna ────────┘                                     ▲
                                                      │
 DOL visa filings ──► PySpark ────────────────────────┤
@@ -53,24 +58,27 @@ Claude API (eligibility, fit, reasoning) ────────────┘
 
 | Layer | Technology |
 |---|---|
-| Ingestion | Python, 7 ATS adapters, boto3 |
+| Ingestion | Python, 10 ATS adapters, boto3 |
 | Data lake | AWS S3, Hive-style partitioning |
 | Warehouse | PostgreSQL (Docker local, Neon hosted), mirrored to Snowflake and Databricks for parity |
-| Transformation | dbt — 15 models, 106 nodes including tests |
-| Batch processing | PySpark over 800k visa filings |
+| Transformation | dbt — 15 models, 113 nodes including 97 tests |
+| Batch processing | PySpark over 595k visa filings |
 | Streaming | Kafka (KRaft), producer + alerting consumer |
 | Orchestration | Airflow |
 | Enrichment | Claude API (Opus 5), structured outputs |
-| Delivery | Static site generator (Jinja2) on GitHub Pages |
-| Testing | pytest (43 tests), dbt tests, CI with a Postgres service |
+| Outreach agent | Claude tool use over the warehouse, FastAPI + SSE |
+| Frontend | React 19, TypeScript (strict), Next.js static export, Tailwind |
+| Delivery | 1,248 prerendered pages on Vercel, no server |
+| Testing | pytest (529 tests), 97 dbt tests, CI with a Postgres service |
 
 ## Scale
 
-- **41,110** postings from **5,052** companies, **18,000** from employers' own boards
-- **130** career boards resolved; **555** companies answered and cached
-- **92,219** technology mentions across **120** tracked tools
-- **108,001** DOL employer records; **1,938** employers with verified filings
-- **640** published pages, searchable in the browser over a 433 kB payload
+- **71,404** postings from **4,048** companies, **58,599** from employers' own boards
+- **1,627** career boards resolved; **8,316** companies tried and cached either way
+- **224,737** technology mentions across **120** tracked tools
+- **595,431** DOL filings over **5,751** employers; **1,596** matched to a company here
+- **1,248** published pages — 1,123 companies, 120 technologies, 5 top level
+- **20,000** roles searchable in the browser over a 735 kB gzipped payload, no backend
 
 ---
 
@@ -99,16 +107,20 @@ been "unclear".
 
 ## What the data shows
 
-**The warehouse market is a two-horse race.** Databricks and Snowflake together hold
-69% of warehouse demand. Redshift — AWS's own product — sits at 7%.
+**The warehouse market is a two-horse race.** Databricks (36%) and Snowflake (34%)
+together hold 70% of warehouse demand. Redshift — AWS's own product — sits at 7.5%,
+behind BigQuery.
 
-**Newer tooling pays best.** Share of postings in the top salary band: DuckDB 95%,
-ClickHouse 93%, Iceberg 85%, Dagster 85% — against a mid-70s field for established
-tools.
+**Newer tooling pays best.** Share of postings in the top salary band: DuckDB 96%,
+Flink 92%, ClickHouse 90%, Iceberg 89%, Dagster 84% — against a mid-70s field for
+established tools.
 
-**Stacks cluster hard.** 91% of postings mentioning Looker also mention BigQuery
-(lift 109×). The co-occurrence model rediscovered the Google, ML and container
-stacks with no prior knowledge of what they are.
+**Stacks cluster hard, and the tightest cluster is the oldest one.** 88% of postings
+mentioning JCL also mention COBOL — 270× what their volumes alone would predict —
+and CICS, Db2 and VSAM sit in the same knot. The co-occurrence model rediscovered
+the mainframe with no prior knowledge that it exists. At the other end, Dagster and
+Prefect co-occur at 305×: direct competitors, named together because the teams
+hiring for one are evaluating both.
 
 ---
 
@@ -128,6 +140,15 @@ anyone, and free-text model output is not.
 
 Peer companies are derived the same way — Jaccard similarity over technology sets,
 no model call — and suppressed entirely below a confidence floor.
+
+**As an agent, with the rails in code.** The outreach tool gives Claude three tools
+over the warehouse and lets it decide what to look up. Everything it may claim is
+checked after the fact by a verifier that does not ask the model anything: a draft
+naming a company the query did not return, quoting a figure no row contains, or
+reaching for a ratio the insight layer deliberately withheld is rejected and
+redrafted. Prompts are advice; the rail is the only thing that holds. The console
+on the site shows the rails firing on purpose — ask it about a company that is not
+in the data and watch it refuse rather than produce something plausible.
 
 ---
 
@@ -200,8 +221,19 @@ python ai_layer/extract_tech.py                  # technology mentions
 python ingestion/market_snapshot.py              # daily market capture
 
 cd dbt_signal && dbt build --profiles-dir .      # build all models
-cd .. && python site/build.py                    # generate the static site
+cd .. && python site/export_data.py              # warehouse → JSON for the frontend
+
+cd web && npm install && npm run build           # 1,248 prerendered pages → web/out
 ```
+
+The frontend is a Next.js static export: React 19 and TypeScript under `strict`, no
+server. Python owns the warehouse and hands it JSON; Next knows nothing about
+Postgres.
+
+The one thing the build does not embed is the 4 MB search payload. It is rebuilt by
+the daily pipeline and fetched at runtime from where that pipeline publishes it, so
+the repository carries no four-megabyte file that changes every night and a build
+from last week still shows today's roles.
 
 Run the tests with `pytest`. To run what CI runs, against a throwaway Postgres
 container and an environment built from `requirements-dev.txt` alone:
@@ -217,8 +249,12 @@ catches type coercion, and Postgres serves the site:
 ```bash
 python storage/load_to_snowflake.py && dbt build --target snowflake
 python storage/load_to_databricks.py && python storage/build_on_databricks.py
-python storage/parity_check.py        # 17 checks, all three engines
+python storage/parity_check.py        # 21 comparisons, all three engines
 ```
+
+Four of the twenty-one compare source row counts before anything else runs. A stale
+mirror otherwise fails as "the engines disagree", which reads exactly like a dialect
+bug and is nothing of the kind.
 
 Employer matches the machine will not guess at are queued for a person:
 
@@ -244,11 +280,18 @@ storage/        S3 → warehouse loader, schema, connection helper, Parquet expo
 processing/     PySpark aggregation over DOL visa filings
 ai_layer/       taxonomy, extraction, LLM enrichment, candidate profiles
 dbt_signal/     staging → intermediate → marts, star schema, macros, tests
-site/           static site generator, templates, client-side search
+site/           warehouse → JSON export for the frontend, legacy Jinja generator
+web/            Next.js frontend — React 19, TypeScript, Tailwind, static export
+agent/          the outreach agent: tool loop, verifier rails, recorded runs
+service/        FastAPI streaming endpoint behind the live console
 outreach/       per-company insights and message drafting
 streaming/      Kafka producer and alerting consumer
 orchestration/  Airflow DAG
 quality/        expectation checks run in the pipeline
+analytics/      history rollups for the trend pages
+dashboard/      Streamlit views over the same marts, for exploration
+eval/           golden-set evaluation of the enrichment model
+scripts/        CI rehearsal, DOL download, credential helpers
 tests/          pytest suite
 ```
 
