@@ -360,6 +360,131 @@ no load step, no cluster, no bill — and writes tiny history tables back into N
 Snowflake was the original plan for this and the trial expired; the work it was going
 to do is here instead, and the SQL stays plain so nothing is welded to DuckDB either.
 
+### 4.12 Retention — `storage/prune.py` (516 lines)
+
+**Neon's free tier is 512 MB, and description text was 240 MB of the 489 MB used.**
+The pipeline stopped being able to load new postings at all — *"could not extend file
+because project size limit has been exceeded"* — which failed the load step and
+skipped the seven steps after it.
+
+Two stages, and the second exists because the first does almost nothing:
+
+1. **Delete whole rows**, and only when a posting is *both* older than the retention
+   window *and* no longer being seen on any board. A live posting is re-seen on every
+   ingest, so **`last_seen` is what separates "delisted" from "still open, just
+   posted a while ago"**.
+2. That rule alone frees almost nothing on a young corpus: on 2026-09-09 it matched
+   **0 postings at 180 days and 13 at 30 days**, because nearly everything is still
+   being re-seen every morning. The database sat at 415 MB regardless. So the second
+   stage reclaims description text specifically.
+
+A later refinement: **delisted postings are deleted outright rather than having their
+text blanked**, and the loader no longer rewrites description text that has not
+changed.
+
+`tests/test_prune.py` asserts over the SQL as text rather than behaviourally, because
+the dangerous property is *which rows the predicate selects*, and that is readable.
+
+### 4.13 Data quality — `quality/expectations.py`
+
+dbt tests assert things about a **single build**: this column is not null, that range
+holds, this grain is unique. They cannot see across runs, so **they never catch the
+failure mode that actually matters here — the pipeline running "successfully" while
+quietly collecting nothing.**
+
+Four checks dbt structurally cannot do:
+
+- **freshness** — has the daily snapshot stopped? *A gap can never be backfilled,
+  because the API only reports today.*
+- **drift** — did the corpus suddenly halve, or triple? Either means a source changed
+  shape.
+- **enrichment** — did LLM scoring silently stop producing usable output?
+- **distribution** — did scores collapse to a single value? That is what a broken
+  prompt looks like from the outside.
+
+Exits non-zero, so it gates both the Airflow DAG and CI.
+
+### 4.14 Streaming — `streaming/producer.py`, `streaming/alerter.py`
+
+**Why a broker exists in a batch project, stated honestly:** the daily pipeline is
+the right shape for building a market index and the wrong shape for *acting* on a
+posting. Good internships close in days, and the ranked feed is only as fresh as the
+last 07:00 run — **a role posted at 09:00 is invisible for 22 hours.** This path
+exists to close that gap and *it is the only reason to add a broker here. It is not
+"batch, but with Kafka in front".*
+
+- **Producer** — publishes postings first seen since the last high-water mark, keyed
+  by `(source, job_id)` so a partition holds all events for a posting **in order**
+  and a replay cannot reorder them. Kafka in KRaft mode (no ZooKeeper).
+  `streaming_watermark` holds the mark.
+- **Alerter** — **deliberately cheap before it is smart.** Every posting is screened
+  with free checks first (title relevance, seniority, verified sponsorship,
+  technology overlap) and only survivors reach the LLM. *A consumer that called an
+  API for every message would spend money proportional to the firehose rather than to
+  the number of genuinely interesting roles — and the firehose is mostly noise.*
+  Alerts are written to `posting_alerts` and printed; wiring them to email or a
+  webhook is a delivery detail, *the judgement is the part that matters.*
+
+### 4.15 Orchestration — `orchestration/signal_dag.py`
+
+The daily chain as an Airflow DAG. **GitHub Actions is what actually runs in
+production**; the DAG is the portable definition and the argument for why the shape
+is a DAG rather than `&&`:
+
+- The snapshot and the posting ingest are **independent and run in parallel**.
+- Steps have **genuinely different failure modes.** A rate-limited ingest should
+  retry with backoff; a failed data-quality check should **stop the run and alert,
+  because publishing bad numbers is worse than publishing none.**
+- The market snapshot is the **one step that cannot be backfilled** — the API only
+  reports today — so it alerts on failure specifically.
+- Enrichment **costs money**, so it is capped and depends on everything before it
+  succeeding.
+
+Tasks **shell out to the project venv** rather than importing the code, so the DAG
+stays independent of the pipeline's dependency tree (Airflow's own constraints are
+famously narrow). It has its own virtualenv — see `orchestration/README.md`.
+
+### 4.16 Enrichment evaluation — `eval/run_eval.py` (346 lines)
+
+Scores the LLM layer against a **hand-labelled golden set** (`eval/golden_set.json`).
+Run after changing the prompt or switching models, and compare against a previous
+run.
+
+It exists because **all three of the model's judgements reach the published board,
+the prompt gets edited, and until this existed nothing measured whether an edit made
+things better or worse.**
+
+The design point: **it calls `ai_layer.enrich.assess()` directly.** It does not
+reimplement the prompt, the schema, or the API call — *a harness that scored its own
+copy of the prompt would keep passing while the real one broke.* `--dry-run` costs
+nothing; `--compare-to` diffs against a stored result in `eval/results/`.
+`tests/test_eval_utils.py` covers the scoring, because the harness is what decides
+whether a change was an improvement.
+
+### 4.17 Dashboard — `dashboard/`
+
+A small Streamlit app over the same marts, for exploration rather than publication.
+It is why `requirements.txt` exists at all and why it is kept minimal: **Streamlit
+Community Cloud installs from it on every deploy**, and the pipeline's heavier
+dependencies (dbt, boto3, anthropic) live in `requirements-dev.txt` — *the dashboard
+never runs them, and dbt's dependency tree is large enough to slow or break a cloud
+build.* `storage/db.py`'s resolution order begins with `DATABASE_URL` precisely
+because Streamlit Cloud injects configuration as a single connection URL.
+
+### 4.18 The four requirements files, and why they are separate
+
+| File | For | Why separate |
+|---|---|---|
+| `requirements.txt` | the Streamlit dashboard only | Community Cloud installs it on every deploy; dbt's tree would slow or break the build |
+| `requirements-dev.txt` | the pipeline and CI | the real dependency set |
+| `requirements-spark.txt` | PySpark | needs a JVM; most machines running the suite do not have one |
+| `requirements-snowflake.txt` | the Snowflake connector | only the parity path needs it |
+
+This split is load-bearing for CI: `tests/test_ci_contract.py` follows first-party
+imports **transitively** and fails if a module reachable from a CI-run test imports a
+package CI does not install. That test exists because a `fastapi` import in the wrong
+module broke CI and nothing else.
+
 ---
 
 ## 5. The warehouse and dbt
@@ -450,32 +575,128 @@ points at one model rather than a diff of 50,000 rows.
 - **Databricks** catches type coercion.
 - **Postgres** serves the site.
 
+### Each engine is an *oracle* for one class of bug
+
+This is the part worth understanding: the engines are not redundant, they are
+chosen because they fail differently. `storage/load_to_databricks.py` states it
+directly — *"a portability claim is only worth making if something tests it on an
+engine that breaks in a new way."*
+
+| Engine | Oracle for | Why the others cannot catch it |
+|---|---|---|
+| **Snowflake** | **Regex anchoring** | Its `regexp_like` is implicitly anchored where Postgres searches anywhere. Spark SQL's `rlike` is unanchored *like Postgres*, so Databricks genuinely cannot catch this class. |
+| **Databricks** | **Type coercion** | Date minus date is an `INTERVAL DAY` on Spark, an integer on the other two. Also exercises arrays, timestamps with time zones, and format strings. |
+| **Postgres** | — | It serves the site, so it is the reference answer. |
+
+Both bug classes have the same dangerous shape: **the SQL compiles on every engine
+and the answer is wrong on one.** Nothing fails. That is why parity compares
+answers rather than exit codes.
+
 ### The Databricks path is genuinely a lakehouse
 
-- `storage/load_to_databricks.py` — Postgres → Parquet → Unity Catalog Volume →
-  `CREATE OR REPLACE TABLE … AS SELECT * FROM read_files(…)`. Those are **managed
-  Delta tables in Unity Catalog**. Reading the Parquet in place means the warehouse
-  does the typing, which is the point: its choices are what parity tests.
-- `storage/build_on_databricks.py` — compiles all 15 dbt models from the manifest and
-  builds them there as Delta tables and views. Transformation happens *on* the
-  lakehouse, not just a dump.
-- `processing/dol_spark.py` — serverless PySpark reading
-  `/Volumes/workspace/signal_dol/lake/parquet`.
+- **`storage/load_to_databricks.py`** (185 lines) — Postgres → Parquet → Unity
+  Catalog Volume → `CREATE OR REPLACE TABLE … AS SELECT * FROM read_files(…)`.
+  Those are **managed Delta tables in Unity Catalog**.
+  - `CREATE OR REPLACE`, not `INSERT`: *this is a mirror, and a mirror that appends
+    is a mirror that double-counts.*
+  - Reading the Parquet **in place** means the warehouse does the typing — which is
+    the point, because its type choices are exactly what parity is testing.
+  - Timestamps are written at **microsecond** precision, not pandas' default
+    nanoseconds: Spark reads Parquet timestamps at microseconds and refuses the rest
+    outright (`Illegal Parquet type: INT64 (TIMESTAMP(NANOS,true))`). Nothing here
+    is measured finer than a second, so the truncation is free.
+- **`storage/build_on_databricks.py`** (208 lines) — compiles all 15 dbt models from
+  the existing manifest and executes them over REST as
+  `CREATE OR REPLACE {VIEW|TABLE} … AS <compiled sql>`. Incremental models are built
+  whole: *incrementality is a property of how the warehouse is maintained, not of
+  what the SQL means*, and parity is about meaning.
+- **`processing/dol_spark.py`** — serverless PySpark reading
+  `/Volumes/workspace/signal_dol/lake/parquet`, writing partitioned Parquet back.
 
 **What is honestly not claimed:** no `MERGE`, time travel, `OPTIMIZE`/Z-ORDER,
-streaming tables, or Iceberg. Loads are `CREATE OR REPLACE` full refresh.
-Postgres/Neon is the primary warehouse; the lakehouse is a parity mirror plus the DOL
-batch target.
+streaming tables, or Iceberg. Loads are full-refresh. Postgres/Neon is the primary
+warehouse; the lakehouse is a parity mirror plus the DOL batch target.
 
-**Free Edition constraints, each found by hitting it** (see `scripts/dol_databricks_run.py`):
-- No cluster — REST Statement Execution API only.
-- A job cannot execute a `python_file` from a Unity Catalog Volume even though the
-  file is there and readable over the Files API; the script is uploaded to the
-  Workspace instead.
-- The job script must not touch `spark.sparkContext` (serverless refuses direct
-  driver JVM access) or use RDDs.
-- Outbound access is restricted to trusted domains and it is undocumented whether an
-  external S3 bucket is among them, so the data is **pushed** rather than pulled.
+### Why it is not `dbt build --target databricks`
+
+Because that cannot work on this account, and it was tried first.
+
+**Databricks Free Edition does not expose its SQL warehouse over the driver protocol
+at all.** A `databricks-sql-connector` connect gets *no response whatsoever* — with
+the warehouse awake and the same credentials working over REST. `dbt-databricks`
+uses that connector, so it hangs forever with no output. Only the **REST Statement
+Execution API** answers. `dbt-databricks` was installed and tried before
+`build_on_databricks.py` was written, and it is **not a dependency of anything
+here**, because it cannot reach this workspace.
+
+### Five Free Edition restrictions, each found by walking into it
+
+1. No cluster, and no driver protocol — **REST Statement Execution API only**.
+2. A job **cannot execute a `python_file` from a Unity Catalog Volume**, even though
+   the file is there and readable over the Files API. The script is uploaded to the
+   Workspace instead.
+3. The job script **must not touch `spark.sparkContext`** — serverless refuses direct
+   driver JVM access outright.
+4. **No RDDs.** Both this and the previous restriction live in
+   `processing/dol_spark.py`, which is written to avoid them when
+   `DATABRICKS_RUNTIME_VERSION` is set — so one definition runs locally *and* on
+   serverless.
+5. **Outbound access is restricted to trusted domains** and it is undocumented
+   whether an external S3 bucket is among them, so `scripts/dol_databricks_run.py`
+   **pushes** the ~30 MB of Parquet rather than having the cluster pull from AWS.
+   (The 576 MB of source XLSX stays local, because Spark cannot read XLSX at all —
+   which is why the Parquet conversion step exists in the first place.)
+
+### Snowflake: key-pair auth, because MFA cannot be satisfied by a driver
+
+`storage/snowflake_db.py`. The account enforces multi-factor authentication, and
+**MFA is a property of interactive login** — a driver presenting a password is
+rejected with *"Multi-factor authentication is required for this account"*, which no
+amount of retrying fixes. Key-pair is the supported route for programmatic access.
+
+It is also simply better here: *the password for this account is recoverable from a
+chat transcript; the private key never left the machine that generated it and is
+gitignored.* Only the public half is registered:
+
+```sql
+ALTER USER <user> SET RSA_PUBLIC_KEY='<base64 body>';
+```
+
+Resolution order is deliberate so a fresh checkout **fails with a sentence rather
+than a stack trace**: `SNOWFLAKE_PRIVATE_KEY_PATH` → `.snowflake_key.p8` beside the
+repo → a clear error.
+
+**`scripts/snowflake_key.py` exists because of one specific failure.** The key has to
+travel as a GitHub secret, and a PEM is a multi-line value being pasted into a
+single-line web form by hand. The first parity run died exactly there: the secret was
+present, the key did not parse, and the run failed before reaching Snowflake at all.
+A PEM is a header, base64, and a footer — only the line breaks go missing — so rather
+than ask for a second manual paste, this reconstructs them. It accepts a correct PEM,
+a PEM whose newlines became literal `\n`, a PEM flattened onto one line with or
+without spaces, and bare base64 with no header or footer at all. Two tests cover it:
+`test_snowflake_key.py` (the shapes) and `test_snowflake_key_parses.py` (does the
+result actually parse as a private key — separate because it needs `cryptography`).
+
+`storage/load_to_snowflake.py` copies **only source tables**; every model is rebuilt
+by dbt in Snowflake rather than shipped across, *which is what actually proves the
+project is not welded to one engine.* Two conversions matter: Postgres `TEXT[]` and
+`JSONB` have no pandas equivalent `write_pandas` accepts, so they are serialised to
+JSON strings — the models only ever select those columns.
+
+### `storage/mirror_tables.py` — the skipped-model trap
+
+One shared list of what a mirror must carry, imported by both loaders.
+
+**Why it is centralised:** a table missing from a mirror does not fail loudly. The
+build reports a Database Error on that source's tests and then **SKIPS every model
+downstream**. The first full Snowflake build went **44 passed, 4 errored, 65
+skipped** — so almost nothing was verified while the run looked like it had mostly
+worked.
+
+> A skipped model is the dangerous outcome, because a failing one announces itself.
+
+Two hand-written copies of the same list is how that happens twice, so the list lives
+in one module. `tests/test_mirror_tables.py` asserts every table dbt reads is in it.
 
 ---
 
@@ -803,27 +1024,147 @@ a page: it has no content, must not be indexed, and exists only so a saved link 
 somewhere useful. Making it a route would put it in the sitemap and give it a real
 `<title>` — the opposite of what it is for.
 
-### Design system
+### Design system — every token, and why
 
-Dark-first with a real light theme. Three theme states handled (`data-theme="dark"`,
-`data-theme="light"`, and un-stamped system default). Tokens in
-`web/tailwind.config.ts` and nowhere else; no component hard-codes a value.
+Defined in `web/tailwind.config.ts` (190 lines) and `web/app/globals.css` (138
+lines), **and nowhere else**. Two rules the config exists to enforce:
 
-- **Type:** Newsreader (display, serif) / Archivo (sans) / IBM Plex Mono (figures),
-  self-hosted by `next/font` at build time — not fetched from Google, which cost a
-  DNS lookup, a TLS handshake and a render-blocking third-party round trip before any
-  text appeared.
-- **Accent** `#3DDC91` kept — it is the product's identity and already passes contrast.
-- The scales are **replaced, not extended**, so an off-scale value cannot be used by
-  accident.
-- The console keeps a mono face and its own near-black ground **in both themes**: a
-  terminal that turns white stops reading as a terminal.
-- Console colour carries meaning and nothing else — green passed, amber a rail fired,
-  red a failure. The accent is not used there, so "interactive" and "this went well"
-  cannot be confused.
+1. **No component hard-codes a colour, size, radius or duration.** If a value is
+   needed and is not in the config, the answer is to add it there — *that is how a
+   "system" becomes eleven slightly different greys.*
+2. **Tailwind's own scales are REPLACED, not extended**, for colour, type, spacing,
+   radius and shadow. Extending leaves `gray-50` and `text-2xl` reachable, *and the
+   moment they are reachable they get used.*
 
-Explicit avoid-list honoured: no eyebrow badge above headlines, no glassmorphism / no
-`backdrop-blur`, no scroll-triggered animation, mobile designed deliberately at 390 px.
+#### Colour — near-monochrome, one accent, status kept separate
+
+Every colour is a CSS variable holding a space-separated RGB triple (not hex), which
+is what lets Tailwind's `/<alpha-value>` work — `bg-accent/10` needs channels.
+
+| Token | Dark (default) | Light |
+|---|---|---|
+| `bg` | `#0B0D0F` | `#FAFBFC` |
+| `surface` (recessed: hover, section grounds) | `#131619` | `#F1F3F5` |
+| `raised` (inputs, buttons, chips) | `#1A1E22` | `#FFFFFF` |
+| `line` | `#23282D` | `#E4E7EA` |
+| `line-strong` | `#333A41` | `#CBD1D6` |
+| `text` | `#E8EBED` | `#12161A` |
+| `text-2` | `#98A1A9` | `#5A636B` |
+| `text-3` | `#667079` | `#858E96` |
+| `accent` | `#3DDC91` | `#0F9D63` |
+| `warn` | `#E0A33E` | `#8A6516` |
+| `stop` | `#FF6B5A` | `#C0392B` |
+
+- **Dark is the default** because the site was dark already and because this is a
+  tool people keep open.
+- **Light is a real design, not an inversion.** The accent darkens to `#0F9D63`
+  because `#3DDC91` on white is unreadable, and the greys warm slightly so a white
+  page does not glare.
+- **`bg` is off-white, not `#FFF`** — and this was a bug fix. Pure white left nothing
+  above it: `raised` is what every input, button and chip sits on, and at `#FFFFFF`
+  on a `#FFFFFF` page it was **not raised at all** — only a border held those
+  controls together, while the dark theme had three real steps. A page a shade below
+  white restores the step. The cast is very slightly cool, matching the dark ground
+  rather than warming in a different direction.
+- **Status colour is separate from the accent.** Green means "this step passed", not
+  "this is interactive". Conflating them makes a console unreadable.
+- **The console keeps `#0A0C10` in both themes.** A terminal that turns white stops
+  reading as a terminal, and this panel's whole job is to look like the real thing.
+
+Three theme states are handled, not two: `:root` carries the dark palette;
+`@media (prefers-color-scheme: light)` guarded as `:root:not([data-theme="dark"])`
+handles the un-stamped system default; `:root[data-theme="light"]` lets the toggle
+win. *A light OS with the toggle set to dark stays dark.* `ThemeProvider` writes the
+attribute; `color-scheme` is set in each branch so form controls follow.
+
+#### Type — Newsreader / Archivo / IBM Plex Mono
+
+A serif display over a neutral grotesk, with mono reserved for **every figure**. It
+suits a product whose entire claim is that every number traces to a query: it reads
+like a publication rather than a dashboard. **Serif is confined to display sizes** so
+dense tables stay scannable — which is what most of this site is.
+
+| Step | Size | Line-height | Tracking | Job |
+|---|---|---|---|---|
+| `display-1` | 4rem | 0.98 | −0.035em | the one headline |
+| `display-2` | 2.75rem | 1.02 | −0.03em | section openers |
+| `h1` | 2rem | 1.1 | −0.025em | page titles |
+| `h2` | 1.375rem | 1.2 | −0.02em | |
+| `h3` | 1.0625rem | 1.35 | −0.01em | |
+| `body` | 0.9375rem | 1.6 | 0 | |
+| `small` | 0.84375rem | 1.5 | 0 | |
+| `label` | 0.6875rem | 1.3 | **+0.12em** | uppercase section labels, column heads |
+| `micro` | 0.75rem | 1.4 | +0.02em | |
+| `data` | 0.8125rem | 1.4 | −0.005em | mono figures in tables |
+| `figure` | 1.75rem | 1 | −0.03em | a figure that *is* the sentence |
+
+Two notes that are load-bearing:
+
+- **The range is deliberately wide.** The first version of this scale topped out at
+  26px and bottomed at 13px — *a page whose largest text is 26px and whose smallest
+  is 13px has no hierarchy, only sizes*, and the result read as the same site in a
+  new font. That is literally what happened on the first pass, and the feedback was
+  "it looks the same".
+- **`label` tracking is the site's main structural device.** +0.12em is what makes
+  small caps legible rather than cramped, and the uppercase label is what replaced
+  the eyebrow badges that the brief forbade.
+
+Fonts are **self-hosted by `next/font` at build time**, not fetched from Google. The
+old site loaded IBM Plex Mono from `fonts.googleapis.com`, costing a DNS lookup, a
+TLS handshake and a render-blocking third-party round trip before any text appeared.
+
+#### Space, shape, depth, motion
+
+- **Spacing: a 4px grid, named 1–9** (4, 8, 12, 16, 24, 32, 48, 64, 96). Replacing
+  Tailwind's scale means `p-4` is 16px here *and there is no `p-3.5` to reach for at
+  2am.*
+- **Radius:** `sm` 4px, `md` 6px, `lg` 10px, `full`. **Border width:** 1px default.
+- **Shadow: three steps, all restrained**, plus a `focus` ring. *Depth on this site
+  comes from the border and the surface, not from a drop shadow.*
+- **Width:** `page` 1180px — matched to the old site's `.wrap` so **line lengths do
+  not move**; `prose` 720px.
+- **Motion: everything under 200ms, one easing curve** (`cubic-bezier(.2,.6,.2,1)`),
+  on **hover and focus only**. There is no scroll-triggered animation anywhere.
+  Durations are **named, not `DEFAULT`** — a `DEFAULT` key generates a bare
+  `duration` class, which reads as "unset" at a call site rather than as a deliberate
+  160ms. Two utilities (`.transition-base`, `.transition-fast`) are written once so a
+  component cannot invent its own timing.
+- Two keyframes only: `blink` (the console cursor) and `rise` (a log line arriving).
+- `prefers-reduced-motion: reduce` collapses every animation and transition to
+  0.01ms.
+- One focus treatment for the whole site, **keyboard only** — a mouse click should
+  not leave a ring behind it.
+- `.tabular` (`font-variant-numeric: tabular-nums`) because figures line up in
+  columns everywhere here.
+
+#### The brief's avoid-list, and the fact that it was violated first
+
+The design brief carried an explicit avoid-list. The first React pass **broke three
+items of it**, and all three were fixed:
+
+| Rule | What happened |
+|---|---|
+| No pill/badge above headlines | An eyebrow badge was placed above *every* headline. Removed; the uppercase `label` step does that job instead. |
+| No glassmorphism | `backdrop-blur` was on the nav. Removed. |
+| Design mobile deliberately at ~390px | It was never tested there. The 44px serif headline measured **~396px** — wider than the screen — so `display-1` only applies from `lg`, and the headline breaks across three deliberate lines rather than wrapping mid-phrase, *because a headline that wraps mid-phrase reads as a mistake.* |
+
+Also honoured: no scroll-triggered animation, no icon set (the site has none and
+does not need one), no centred-everything layout — the hero is **asymmetric**, claim
+on the left and the figure that backs it on the right, *because centring both is the
+pattern every landing page uses and it says nothing about which of the two is the
+point.*
+
+#### Component library — `web/components/ui/`
+
+`Badge` (carrying the old `.tag.ok|no|na|wa` semantics), `Button`, `Card` + `KpiTile`,
+`Chip`, `Field` (`Input`, `Select`, `Textarea`), `Meter`, `Page` (+ `PageHeader`,
+`Section`, `Kpis`, `Note`), `Table` (+ `Th`, `Td` with a `numeric` variant that is
+mono, tabular and right-aligned). Every page composes these; **no page styles a
+button.**
+
+Row interaction on the job board is worth noting: the whole row is the target, and
+the hover state is **an accent rule scaling in from the left**, not the row lifting
+or glowing.
 
 ---
 
@@ -1222,7 +1563,9 @@ If you are picking this up cold, read in this order:
 4. `outreach/insights.py` then `agent/verify.py` — the honesty machinery.
 5. `web/lib/search.ts` and `web/hooks/useJobSearch.ts` — the only load-bearing
    client logic.
-6. `.github/workflows/daily.yml` — what actually runs, in order.
+6. `web/tailwind.config.ts` and `web/app/globals.css` — the whole design system,
+   with the reason for each token in a comment beside it.
+7. `.github/workflows/daily.yml` — what actually runs, in order.
 
 Things to be careful about:
 
@@ -1231,4 +1574,9 @@ Things to be careful about:
 - **Do not add a default that makes an absent flag mean "trusted".**
 - **Do not change search behaviour** without running `node web/scripts/parity.mjs`.
 - **Do not add defaults to `dbt_signal/profiles.yml`.**
+- **Do not hard-code a colour, size, radius or duration in a component** — add the
+  token to `web/tailwind.config.ts`.
+- **Do not reach for `dbt-databricks`.** It cannot connect to this workspace at all;
+  the REST path in `storage/build_on_databricks.py` is not a workaround to be tidied
+  away.
 - **Re-derive numbers** rather than copying them from documentation, including this file.
