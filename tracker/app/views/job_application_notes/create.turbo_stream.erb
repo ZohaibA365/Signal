@@ -1,0 +1,6 @@
+<%# One target: the block holding both the list and the form. The note appears and
+    the input clears together. `reload` because @application.notes was loaded
+    before the new row existed. %>
+<%= turbo_stream.replace dom_id(@application, :notes) do %>
+  <%= render "job_application_notes/list", application: @application.reload %>
+<% end %>

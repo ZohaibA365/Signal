@@ -58,13 +58,7 @@
         <% end %>
       </div>
 
-      <%# Saving to the tracker is Stage 3. Until then this says what it will be
-          rather than pretending to work. %>
-      <% if application %>
-        <span class="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
-          <%= application.status.humanize %>
-        </span>
-      <% end %>
+      <%= render "job_applications/control", posting: posting, application: application %>
     </div>
   </div>
 </li>

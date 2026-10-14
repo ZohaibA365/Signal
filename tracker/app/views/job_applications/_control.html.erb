@@ -1,0 +1,25 @@
+<%# Save-or-status for one posting.
+    `posting` may be nil: a tracked role whose posting has since been delisted or
+    dropped by dbt's nightly rebuild. That is a normal state, not an error, so the
+    control still works from the application row alone.
+    `application` is nil when the posting is not tracked yet. %>
+<div id="<%= control_dom_id(posting: posting, application: application) %>"
+     class="flex items-center gap-2">
+  <% if application.nil? %>
+    <%= button_to "Save", job_applications_path(posting_key: posting.key),
+          class: "rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50" %>
+  <% else %>
+    <%= form_with model: application, method: :patch, class: "contents" do |f| %>
+      <%= f.select :status,
+            options_for_select(JobApplication::STATUSES.map { |s| [ s.humanize, s ] }, application.status),
+            {},
+            data: { controller: "autosubmit", action: "change->autosubmit#submit" },
+            class: "rounded-md border-gray-300 py-1 pl-2 pr-7 text-xs #{status_select_class(application.status)}" %>
+    <% end %>
+
+    <%= button_to job_applications_path(id: application), method: :delete,
+          form: { data: { turbo_confirm: "Remove #{application.job_title} from the tracker?" } },
+          class: "text-xs text-gray-400 hover:text-rose-700",
+          title: "Remove from tracker" do %>&times;<% end %>
+  <% end %>
+</div>

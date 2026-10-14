@@ -1,0 +1,19 @@
+<%# List and form in ONE element, so a new note replaces the whole block: the note
+    appears and the input clears in a single stream action. Appending the note and
+    separately resetting the form needs two targets and duplicates the note if the
+    list is also re-rendered. %>
+<div id="<%= dom_id(application, :notes) %>" class="mt-2">
+  <ul class="space-y-1">
+    <% application.notes.sort_by(&:created_at).each do |note| %>
+      <%= render "job_application_notes/note", note: note %>
+    <% end %>
+  </ul>
+
+  <%= form_with model: [ application, JobApplicationNote.new ],
+                url: job_application_notes_path(application),
+                class: "mt-1.5 flex gap-2" do |f| %>
+    <%= f.text_field :body, placeholder: "Add a note…", autocomplete: "off",
+          class: "w-full rounded-md border-gray-300 py-1 text-xs shadow-sm focus:border-blue-500 focus:ring-blue-500" %>
+    <%= f.submit "Add", class: "shrink-0 cursor-pointer rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50" %>
+  <% end %>
+</div>

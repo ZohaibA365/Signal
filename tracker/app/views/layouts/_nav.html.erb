@@ -1,0 +1,20 @@
+<%# Three links and a sign-out. There is one user and two pages; a sidebar would
+    be furniture. `aria-current` marks the active page for screen readers as well
+    as the eye. %>
+<nav class="border-b border-gray-200 bg-white">
+  <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-2.5">
+    <div class="flex items-baseline gap-5">
+      <span class="text-sm font-semibold tracking-tight text-gray-900">Signal</span>
+
+      <% [ [ "Postings", postings_path, controller_name == "postings" ],
+           [ "Tracker", job_applications_path, controller_name.start_with?("job_application") ] ].each do |label, path, active| %>
+        <%= link_to label, path,
+              "aria-current": (active ? "page" : nil),
+              class: "text-sm #{active ? 'font-medium text-gray-900' : 'text-gray-500 hover:text-gray-900'}" %>
+      <% end %>
+    </div>
+
+    <%= button_to "Sign out", session_path, method: :delete,
+          class: "text-sm text-gray-400 hover:text-gray-900" %>
+  </div>
+</nav>

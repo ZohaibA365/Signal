@@ -1,0 +1,11 @@
+<p id="tracker_counts" class="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-gray-500">
+  <% JobApplication::STATUSES.each do |status| %>
+    <span>
+      <span class="<%= status_text_class(status) %>"><%= status.humanize %></span>
+      <%= counts.fetch(status, 0) %>
+    </span>
+  <% end %>
+  <% if counts.values.sum.zero? %>
+    <span class="text-gray-400">nothing tracked yet</span>
+  <% end %>
+</p>

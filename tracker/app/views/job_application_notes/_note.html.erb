@@ -1,0 +1,7 @@
+<li id="<%= dom_id(note) %>" class="group flex items-baseline gap-2 text-xs">
+  <span class="shrink-0 font-mono text-gray-400"><%= note.created_at.to_date.to_fs(:short) %></span>
+  <span class="min-w-0 flex-1 text-gray-600"><%= note.body %></span>
+  <%= button_to job_application_note_path(note.job_application, note), method: :delete,
+        class: "shrink-0 text-gray-300 opacity-0 transition group-hover:opacity-100 hover:text-rose-600",
+        title: "Delete note" do %>&times;<% end %>
+</li>

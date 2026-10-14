@@ -1,0 +1,19 @@
+<%# Replace just the control. The id is derived from the posting key when we have
+    a posting, and from the application id otherwise, so a save and a later status
+    change both address the same element. %>
+<%= turbo_stream.replace control_dom_id(posting: @posting, application: @removed ? nil : @application) do %>
+  <%= render "job_applications/control",
+             posting: @posting,
+             application: @removed ? nil : @application %>
+<% end %>
+
+<%# If we are on the tracker page, the row itself has to go or appear. Turbo
+    ignores a stream action whose target is not on the current page, so sending
+    both is safe and means one response serves both pages. %>
+<% if @removed %>
+  <%= turbo_stream.remove dom_id(@application) %>
+<% end %>
+
+<%= turbo_stream.replace "tracker_counts" do %>
+  <%= render "job_applications/counts", counts: JobApplication.group(:status).count %>
+<% end %>

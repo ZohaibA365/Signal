@@ -1,0 +1,3 @@
+<%= turbo_stream.replace dom_id(@application, :notes) do %>
+  <%= render "job_application_notes/list", application: @application.reload %>
+<% end %>

@@ -1,0 +1,43 @@
+<li id="<%= dom_id(application) %>" class="py-3">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <div class="min-w-0 flex-1">
+      <% if application.link_url.present? %>
+        <a href="<%= application.link_url %>" target="_blank" rel="noopener noreferrer"
+           class="font-medium text-gray-900 hover:underline"><%= application.job_title %></a>
+      <% else %>
+        <span class="font-medium text-gray-900"><%= application.job_title %></span>
+      <% end %>
+
+      <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
+        <span class="text-gray-700"><%= application.company_name %></span>
+        <span>· saved <%= time_ago_in_words(application.saved_at) %> ago</span>
+        <% if application.applied_at %>
+          <span>· applied <%= application.applied_at.to_date.to_fs(:long) %></span>
+        <% end %>
+        <% if application.closed_at %>
+          <span>· closed <%= application.closed_at.to_date.to_fs(:long) %></span>
+        <% end %>
+      </div>
+
+      <%# The posting may be gone - delisted, or dropped by dbt's nightly rebuild.
+          Saying so is more useful than silently showing nothing, because it tells
+          you the role is probably closed. %>
+      <% if application.posting.nil? %>
+        <p class="mt-1 text-xs text-amber-700">
+          No longer in the warehouse — most likely delisted.
+        </p>
+      <% elsif application.posting.fit_score.present? %>
+        <p class="mt-1 font-mono text-xs text-gray-400">
+          fit <%= application.posting.fit_score %> · <%= application.posting.recommendation %>
+        </p>
+      <% end %>
+
+      <%= render "job_application_notes/list", application: application %>
+    </div>
+
+    <div class="shrink-0">
+      <%= render "job_applications/control",
+                 posting: application.posting, application: application %>
+    </div>
+  </div>
+</li>
