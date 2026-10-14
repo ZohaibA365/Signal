@@ -1,0 +1,70 @@
+<%# One posting. `application` is the tracker row if you have already saved this,
+    passed in from a single bulk query rather than looked up per row. %>
+<li class="py-3" id="<%= dom_id_for_posting(posting) %>">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+    <div class="min-w-0 flex-1">
+      <a href="<%= posting.link_url %>" target="_blank" rel="noopener noreferrer"
+         class="font-medium text-gray-900 hover:underline"><%= posting.job_title %></a>
+
+      <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
+        <span class="text-gray-700"><%= posting.company_name %></span>
+        <% if posting.location_state.present? %><span>· <%= posting.location_state %></span><% end %>
+        <span>· <%= posting.country.to_s.upcase %></span>
+        <span>· <%= posting.days_since_posted %>d ago</span>
+        <% if posting.salary_min_reported.present? %>
+          <span>· <%= number_to_currency(posting.salary_min_reported, precision: 0) %>+</span>
+        <% end %>
+      </div>
+
+      <div class="mt-1.5 flex flex-wrap gap-1.5">
+        <%= posting_badge posting.seniority.to_s.humanize, :neutral %>
+
+        <% case posting.posting_sponsorship
+           when "offered_in_posting" %>
+          <%= posting_badge "Sponsorship offered", :good %>
+        <% when "no_sponsorship_this_role" %>
+          <%= posting_badge "No sponsorship", :bad %>
+        <% when "frequent_sponsor" %>
+          <%= posting_badge "Frequent sponsor", :good %>
+        <% when "has_sponsored" %>
+          <%= posting_badge "Has sponsored", :ok %>
+        <% when "rarely_sponsors" %>
+          <%= posting_badge "Rarely sponsors", :warn %>
+        <% end %>
+
+        <% if posting.eligibility == "blocked" %>
+          <%= posting_badge "US citizens only", :bad %>
+        <% end %>
+
+        <% if posting.sponsor_on_record? %>
+          <%= posting_badge "#{number_with_delimiter(posting.sponsor_filings)} DOL filings", :ok %>
+        <% end %>
+      </div>
+
+      <%# Claude's one-sentence reasoning, where it exists. Shown because a score
+          without its reason is just a number to argue with. %>
+      <% if posting.fit_reasoning.present? %>
+        <p class="mt-1.5 max-w-prose text-xs leading-relaxed text-gray-500">
+          <%= truncate(posting.fit_reasoning, length: 180) %>
+        </p>
+      <% end %>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-3 sm:flex-col sm:items-end sm:gap-1">
+      <div class="text-right font-mono text-xs">
+        <div class="<%= recommendation_class(posting.recommendation) %>"><%= posting.recommendation %></div>
+        <% if posting.scored? %>
+          <div class="text-gray-500">fit <%= posting.fit_score %></div>
+        <% end %>
+      </div>
+
+      <%# Saving to the tracker is Stage 3. Until then this says what it will be
+          rather than pretending to work. %>
+      <% if application %>
+        <span class="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+          <%= application.status.humanize %>
+        </span>
+      <% end %>
+    </div>
+  </div>
+</li>

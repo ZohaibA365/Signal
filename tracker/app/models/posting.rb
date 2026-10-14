@@ -25,15 +25,15 @@ class Posting < WarehouseRecord
   # it work over a table that has no database primary key. These records are
   # read-only so the key is only ever used for lookup, never for an UPDATE's
   # WHERE clause.
-  self.primary_key = [:source, :job_id]
+  self.primary_key = [ :source, :job_id ]
 
   # The vocabulary dbt guarantees. Asserted by a dbt test in
   # dbt_signal/models/marts/_market_models.yml:100-124, so these are the only
   # values that can appear - but they are listed here rather than imported,
   # because a dbt change should break a test here rather than silently change a
   # filter's meaning.
-  RECOMMENDATIONS = ["apply now", "worth a look", "low priority", "skip", "not yet scored"].freeze
-  ACTIONABLE      = ["apply now", "worth a look", "low priority"].freeze
+  RECOMMENDATIONS = [ "apply now", "worth a look", "low priority", "skip", "not yet scored" ].freeze
+  ACTIONABLE      = [ "apply now", "worth a look", "low priority" ].freeze
 
   # What the browse page opens on: rows the pipeline has actually judged.
   scope :default_browse, -> { where(recommendation: ACTIONABLE) }

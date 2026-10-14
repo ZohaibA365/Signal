@@ -57,7 +57,7 @@ class CreateTrackerTables < ActiveRecord::Migration[8.1]
       t.timestamps
     end
 
-    add_index :job_applications, [:source, :job_id], unique: true
+    add_index :job_applications, [ :source, :job_id ], unique: true
     add_index :job_applications, :status
 
     # `public.outreach_tracker.status` has no CHECK constraint, and the allowed
@@ -101,7 +101,7 @@ class CreateTrackerTables < ActiveRecord::Migration[8.1]
       t.timestamps
     end
 
-    add_index :outreach_approvals, [:source, :job_id], unique: true
+    add_index :outreach_approvals, [ :source, :job_id ], unique: true
     add_index :outreach_approvals, :decision
 
     add_check_constraint :outreach_approvals,

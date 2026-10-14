@@ -1,0 +1,88 @@
+<%# URL-backed state: every control is a GET param, so a filtered view is a link
+    you can bookmark or send yourself, and the back button works. %>
+<%= form_with url: postings_path, method: :get,
+              data: {
+                turbo_frame: "results",
+                controller: "autosubmit",
+                autosubmit_delay_value: 300
+              },
+              class: "mb-5 space-y-3" do |f| %>
+
+  <%# limit is deliberately NOT carried over: changing a filter should show the
+      first page of the new result set, not keep a 500-row window open. %>
+
+  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <%= f.search_field :q, value: filter.q,
+          placeholder: "Search role or company",
+          autocomplete: "off",
+          data: { action: "input->autosubmit#schedule" },
+          class: "sm:col-span-2 w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500" %>
+
+    <%= f.select :sponsorship,
+          options_for_select(PostingFilter::SPONSORSHIP.map { |k, v| [v, k] }, filter.sponsorship),
+          { include_blank: "Any sponsorship" },
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.select :seniority,
+          options_for_select([%w[Intern intern], %w[Entry entry], %w[Mid mid], %w[Senior senior]], filter.seniority),
+          { include_blank: "Any level" },
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+    <%= f.select :country,
+          options_for_select([["United States", "us"], ["Canada", "ca"]], filter.country),
+          { include_blank: "Anywhere" },
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.select :state,
+          options_for_select(states, filter.state),
+          { include_blank: "Any location" },
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.select :recommendation,
+          options_for_select(Posting::RECOMMENDATIONS.map { |r| [r.humanize, r] }, filter.recommendation),
+          { include_blank: "Any verdict" },
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.number_field :min_fit, value: filter.min_fit, min: 0, max: 100, step: 5,
+          placeholder: "Min fit",
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.number_field :max_days, value: filter.max_days, min: 1, max: 365, step: 7,
+          placeholder: "Posted within (days)",
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+
+    <%= f.select :sort,
+          options_for_select(PostingFilter::SORTS.map { |k, v| [v[:label], k] }, filter.sort),
+          {},
+          data: { action: "change->autosubmit#submit" },
+          class: "w-full rounded-md border-gray-300 text-sm shadow-sm" %>
+  </div>
+
+  <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+    <label class="flex items-center gap-2 text-sm text-gray-600">
+      <%= f.check_box :include_unscored, { checked: filter.include_unscored,
+            data: { action: "change->autosubmit#submit" },
+            class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500" }, "1", nil %>
+      Include the <%= number_with_delimiter(corpus[:unscored]) %> postings Claude has not scored yet
+    </label>
+
+    <% if filter.filtered? %>
+      <%= link_to "Clear filters", postings_path,
+            data: { turbo_frame: "_top" },
+            class: "text-sm text-gray-500 underline hover:text-gray-900" %>
+    <% end %>
+  </div>
+
+  <noscript>
+    <%= f.submit "Apply filters", class: "rounded-md bg-blue-600 px-3 py-2 text-sm text-white" %>
+  </noscript>
+<% end %>

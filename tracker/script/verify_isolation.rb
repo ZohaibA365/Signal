@@ -94,8 +94,8 @@ end
 
 must_allow("search_paths are correct and do not bleed into each other") do
   checks = {
-    "primary" => [ApplicationRecord.connection.select_value("SHOW search_path"), "tracker"],
-    "warehouse" => [WarehouseRecord.connection.select_value("SHOW search_path"), "public"]
+    "primary" => [ ApplicationRecord.connection.select_value("SHOW search_path"), "tracker" ],
+    "warehouse" => [ WarehouseRecord.connection.select_value("SHOW search_path"), "public" ]
   }
   wrong = checks.reject { |_, (actual, expected)| actual.to_s.include?(expected) }
   unless wrong.empty?
@@ -170,30 +170,30 @@ puts "   (these bypass ActiveRecord entirely and must still fail)"
 
 warehouse = WarehouseRecord.connection
 
-must_refuse("raw INSERT INTO public.outreach_tracker", expect: [READONLY, PRIVILEGE]) do
+must_refuse("raw INSERT INTO public.outreach_tracker", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute(<<~SQL)
     INSERT INTO public.outreach_tracker (source, job_id, status)
     VALUES ('__isolation_probe__', 'probe', 'not_contacted')
   SQL
 end
 
-must_refuse("raw UPDATE public.raw_postings", expect: [READONLY, PRIVILEGE]) do
+must_refuse("raw UPDATE public.raw_postings", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute("UPDATE public.raw_postings SET job_title = job_title WHERE false")
 end
 
-must_refuse("raw DELETE FROM public.apply_queue", expect: [READONLY, PRIVILEGE]) do
+must_refuse("raw DELETE FROM public.apply_queue", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute("DELETE FROM public.apply_queue WHERE false")
 end
 
-must_refuse("raw TRUNCATE public.posting_technologies", expect: [READONLY, PRIVILEGE]) do
+must_refuse("raw TRUNCATE public.posting_technologies", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute("TRUNCATE public.posting_technologies")
 end
 
-must_refuse("DDL: CREATE TABLE in public", expect: [READONLY, PRIVILEGE]) do
+must_refuse("DDL: CREATE TABLE in public", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute("CREATE TABLE public.__isolation_probe__ (id int)")
 end
 
-must_refuse("DDL: ALTER a dbt mart (adding a column would vanish nightly anyway)", expect: [READONLY, PRIVILEGE]) do
+must_refuse("DDL: ALTER a dbt mart (adding a column would vanish nightly anyway)", expect: [ READONLY, PRIVILEGE ]) do
   warehouse.execute("ALTER TABLE public.apply_queue ADD COLUMN __probe__ int")
 end
 

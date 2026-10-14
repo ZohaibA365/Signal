@@ -1,0 +1,44 @@
+<%# Inside turbo_frame_tag "results". Everything here is replaced wholesale when a
+    filter changes, so it carries the count, the rows and the "show more" link. %>
+
+<p class="mb-3 flex flex-wrap items-baseline gap-x-3 font-mono text-xs text-gray-500" aria-live="polite">
+  <span class="text-gray-900"><%= number_with_delimiter(filter.total) %>
+    <%= "posting".pluralize(filter.total) %></span>
+  <% if filter.total > postings.size %>
+    <span>showing <%= postings.size %></span>
+  <% end %>
+  <% unless filter.include_unscored %>
+    <span class="text-gray-400">scored only</span>
+  <% end %>
+  <span class="text-gray-400">direct links only</span>
+</p>
+
+<% if postings.empty? %>
+  <div class="border-y border-gray-200 py-12 text-center">
+    <p class="text-sm text-gray-500">Nothing matches those filters.</p>
+    <% unless filter.include_unscored %>
+      <p class="mt-1 text-xs text-gray-400">
+        Only <%= number_with_delimiter(corpus[:actionable]) %> of
+        <%= number_with_delimiter(corpus[:total]) %> postings are both scored and
+        directly linkable. Try ticking &ldquo;include unscored&rdquo;.
+      </p>
+    <% end %>
+  </div>
+<% else %>
+  <ul class="divide-y divide-gray-200 border-y border-gray-200">
+    <% postings.each do |posting| %>
+      <%= render "posting", posting: posting, application: tracked[posting.key] %>
+    <% end %>
+  </ul>
+
+  <% if filter.more? %>
+    <div class="mt-5 text-center">
+      <%= link_to postings_path(filter.to_params.merge(limit: filter.next_limit)),
+                  data: { turbo_frame: "results" },
+                  class: "inline-block rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" do %>
+        Show <%= number_with_delimiter([PostingFilter::PAGE_SIZE, filter.total - postings.size].min) %> more
+        <span class="text-gray-400">(<%= number_with_delimiter(filter.total - postings.size) %> left)</span>
+      <% end %>
+    </div>
+  <% end %>
+<% end %>

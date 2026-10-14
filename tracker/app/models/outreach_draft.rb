@@ -35,7 +35,7 @@ require "digest"
 # ---------------------------------------------------------------------------
 class OutreachDraft < WarehouseRecord
   self.table_name  = "outreach_tracker"
-  self.primary_key = [:source, :job_id]
+  self.primary_key = [ :source, :job_id ]
 
   # Mirrors agent/schemas.py:22. Order is significant there; here it is only a
   # vocabulary, and Rails never writes any of it.
