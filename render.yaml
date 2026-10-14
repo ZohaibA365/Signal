@@ -1,4 +1,10 @@
-# Render Blueprint for the tracker app.
+# Render Blueprint for the Rails app in tracker/.
+#
+# At the repository root, not in tracker/, because that is where Render looks by
+# default. A blueprint in a subdirectory works too but needs its path typed into
+# the dashboard, which is one more thing to get wrong for no gain. `rootDir`
+# below is what points the service at tracker/, and it also means a change to
+# the Python pipeline does not trigger a Rails rebuild.
 #
 # There is no database here on purpose. Signal's warehouse is Neon and the Rails
 # app owns one schema inside it, so a Render Postgres would be a second database
