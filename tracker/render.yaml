@@ -1,0 +1,63 @@
+# Render Blueprint for the tracker app.
+#
+# There is no database here on purpose. Signal's warehouse is Neon and the Rails
+# app owns one schema inside it, so a Render Postgres would be a second database
+# with nothing in it. That is also what keeps this free: the only billable thing
+# would be compute, and the free plan covers it.
+#
+# The free plan sleeps after 15 minutes idle and takes about a minute to wake,
+# and Neon suspends idle compute too, so the first request after a long gap pays
+# both. For a tool opened once or twice a day that is an acceptable trade;
+# `plan: starter` ($7/mo) removes it with no other change.
+services:
+  - type: web
+    name: signal-tracker
+    runtime: ruby
+    plan: free
+    region: ohio          # nearest to Neon's us-east-2, so queries are not transatlantic
+    branch: main
+    rootDir: tracker
+    buildCommand: ./bin/render-build.sh
+    startCommand: bundle exec puma -C config/puma.rb
+    # /up returns 200 without touching the database, so a sleeping Neon compute
+    # cannot make Render think the app is unhealthy. Verified in production mode.
+    healthCheckPath: /up
+
+    envVars:
+      - key: RAILS_ENV
+        value: production
+
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+
+      # 0 means Puma single mode, not "no workers": one process, three threads,
+      # three database connections. Puma itself warns that cluster mode with a
+      # single worker is a misconfiguration, and single mode saves the master
+      # process's memory on a 512 MB instance - both observed running this build
+      # locally in production mode.
+      #
+      # Three connections is the point, not the traffic. A cached connection in
+      # this project once sat idle in transaction for 22 hours and blocked DDL,
+      # and storage/prune.py vacuums the same database every morning.
+      # service/Dockerfile runs one uvicorn worker for the same reason.
+      - key: WEB_CONCURRENCY
+        value: "0"
+      - key: RAILS_MAX_THREADS
+        value: "3"
+
+      # Set by hand in the dashboard, never in this file:
+      #   DATABASE_URL          Neon DIRECT endpoint, as signal_rails
+      #   MIGRATE_DATABASE_URL  the same direct endpoint
+      #   RAILS_MASTER_KEY      contents of config/master.key
+      #   ADMIN_EMAIL           the single user
+      #   ADMIN_PASSWORD        that user's password
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATE_DATABASE_URL
+        sync: false
+      - key: RAILS_MASTER_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
