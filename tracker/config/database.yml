@@ -1,0 +1,117 @@
+# Two connections to ONE Neon database, and the difference between them is what
+# makes "Rails owns only its own tables" structural rather than a promise.
+#
+#   primary    -> schema `tracker`.  Rails migrates and writes here.
+#   warehouse  -> schema `public`.   dbt and the Python pipeline own this; read only.
+#
+# Three independent layers stop Rails writing to the warehouse. Any one of them
+# would probably do; all three are cheap, and the innermost is enforced by Postgres
+# rather than by the care of whoever edits this next - which is the posture
+# service/sandbox.py already takes for the public agent service.
+#
+#   1. `database_tasks: false` - per the Rails guide this opts the database out of
+#      schema management, migrations and seeds entirely. A migration cannot target
+#      the warehouse connection even by mistake.
+#   2. `replica: true` - ActiveRecord refuses writes on the connection.
+#   3. The `signal_rails` Postgres role has SELECT on an enumerated list of public
+#      tables and no INSERT/UPDATE/DELETE anywhere in public. See
+#      script/setup_database_role.sql.
+#
+# Both entries read the SAME url. They are not different credentials or different
+# hosts - only `schema_search_path` differs, and that is set here, not in the URL.
+#
+# ---------------------------------------------------------------------------
+# DATABASE_URL MUST BE NEON'S DIRECT ENDPOINT, NOT THE -pooler HOST.
+#
+# This was measured, not assumed, and it is the one setting that cannot be
+# relaxed. Neon's default endpoint is PgBouncer in TRANSACTION mode, which
+# multiplexes client connections onto a shared server backend. With the pooled
+# host, `primary` and `warehouse` had separate Rails pools and separate client
+# objects but reported the SAME pg_backend_pid(). `search_path` is session state
+# on that one backend, so whichever connection last ran SET won, and the two
+# silently swapped schemas: `warehouse` began resolving `outreach_tracker` in
+# `tracker` (where it does not exist) and `primary` lost `tracker` entirely.
+#
+# The entire two-connection design depends on the two having different
+# search_paths, so the pooler is unusable here. On the direct endpoint each
+# connection gets a real backend - verified: distinct pids, stable search_paths,
+# and the schemas no longer swap after a write.
+#
+# script/verify_isolation.rb asserts the backend pids differ, so a change back to
+# the -pooler host fails loudly rather than corrupting schema resolution.
+#
+# Secondary settings, kept because they are cheap and make the config correct
+# under either endpoint rather than only the right one:
+#
+#   prepared_statements: false, advisory_locks: false
+#     Both are strictly necessary only through a transaction-mode pooler, and
+#     both work on the direct endpoint. They are left off because the
+#     performance difference is irrelevant for a single-user tool, and because
+#     if anyone does point this at the pooler the failure should be a slow query
+#     rather than a corrupted lock.
+#
+#   pool / idle_timeout / reaping_frequency / statement timeouts
+#     A cached connection in this project once sat "idle in transaction" for 22
+#     hours, pinning vacuum and blocking DDL, and storage/prune.py runs VACUUM
+#     every morning against this same database. A Rails connection pool is
+#     exactly that hazard, so the pool is small, idle connections are dropped
+#     after a minute, the reaper runs often, and Postgres is told to kill any
+#     session that holds a transaction open for more than ten seconds.
+#     service/Dockerfile runs ONE uvicorn worker for the same reason: "a second
+#     worker would buy nothing and double the idle database connections."
+# ---------------------------------------------------------------------------
+
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  prepared_statements: false
+  advisory_locks: false
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 3) %>
+  idle_timeout: 60
+  reaping_frequency: 30
+  connect_timeout: 15
+  variables:
+    # Never let a Rails query sit holding a transaction open against the
+    # warehouse the pipeline is trying to vacuum.
+    statement_timeout: 15000
+    idle_in_transaction_session_timeout: 10000
+
+development:
+  primary:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
+    schema_search_path: "tracker"
+  warehouse:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
+    schema_search_path: "public"
+    replica: true
+    database_tasks: false
+
+# The test database is a local throwaway, not Neon: no pooler, so the Neon
+# workarounds above are harmless but unnecessary. `warehouse` points at the same
+# local database because the read-only models need their tables to exist; the
+# stand-ins are created by spec/support/warehouse_fixture.sql.
+test:
+  primary:
+    <<: *default
+    url: <%= ENV.fetch("TEST_DATABASE_URL", "postgresql://signal:signal@localhost:5433/tracker_test") %>
+    schema_search_path: "tracker"
+  warehouse:
+    <<: *default
+    url: <%= ENV.fetch("TEST_DATABASE_URL", "postgresql://signal:signal@localhost:5433/tracker_test") %>
+    schema_search_path: "public"
+    replica: true
+    database_tasks: false
+
+production:
+  primary:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
+    schema_search_path: "tracker"
+  warehouse:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
+    schema_search_path: "public"
+    replica: true
+    database_tasks: false

@@ -1,0 +1,18 @@
+# Action Cable is loaded but unused.
+#
+# Every interactive piece of this app is a Turbo Stream returned in response to a
+# form post, which travels over plain HTTP and needs no WebSocket. Only
+# `broadcast_*` helpers require a pub/sub backend, and nothing here broadcasts.
+#
+# The generated default pointed production at redis://localhost:6379. There is no
+# Redis in this deployment, so that line could only ever have produced a confusing
+# connection error if some future code touched a channel. `async` is in-process:
+# it cannot fail to reach a server that does not exist.
+development:
+  adapter: async
+
+test:
+  adapter: test
+
+production:
+  adapter: async

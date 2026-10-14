@@ -1,0 +1,47 @@
+<div class="mx-auto max-w-5xl px-4 py-8">
+  <header class="mb-6 flex items-baseline justify-between border-b border-gray-200 pb-4">
+    <div>
+      <h1 class="text-2xl font-medium tracking-tight text-gray-900">Postings</h1>
+      <p class="mt-1 text-sm text-gray-500">
+        Read from <code class="font-mono text-xs">public.apply_queue</code>, which dbt rebuilds nightly.
+      </p>
+    </div>
+    <%= button_to "Sign out", session_path, method: :delete,
+          class: "text-sm text-gray-500 hover:text-gray-900" %>
+  </header>
+
+  <p class="mb-4 font-mono text-xs text-gray-500">
+    <% Posting::ACTIONABLE.each do |r| %>
+      <span class="mr-3"><%= r %>: <%= @counts.fetch(r, 0) %></span>
+    <% end %>
+  </p>
+
+  <ul class="divide-y divide-gray-200 border-y border-gray-200">
+    <% @postings.each do |posting| %>
+      <li class="py-3">
+        <div class="flex items-baseline justify-between gap-4">
+          <div class="min-w-0">
+            <a href="<%= posting.link_url %>" target="_blank" rel="noopener noreferrer"
+               class="font-medium text-gray-900 hover:underline"><%= posting.job_title %></a>
+            <div class="mt-0.5 text-sm text-gray-500">
+              <%= posting.company_name %>
+              <% if posting.location_state.present? %> · <%= posting.location_state %><% end %>
+              · <%= posting.days_since_posted %>d
+            </div>
+          </div>
+          <div class="shrink-0 text-right font-mono text-xs text-gray-600">
+            <div><%= posting.recommendation %></div>
+            <% if posting.scored? %><div>fit <%= posting.fit_score %></div><% end %>
+            <% if posting.sponsor_on_record? %>
+              <div class="text-emerald-700"><%= posting.sponsor_filings %> filings</div>
+            <% end %>
+          </div>
+        </div>
+      </li>
+    <% end %>
+  </ul>
+
+  <% if @postings.empty? %>
+    <p class="py-8 text-center text-gray-500">No scored postings yet.</p>
+  <% end %>
+</div>

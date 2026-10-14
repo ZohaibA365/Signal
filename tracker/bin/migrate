@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Run migrations against Neon's DIRECT endpoint, not the pooler.
+#
+# Rails takes a Postgres advisory lock around a migration so two deploys cannot
+# migrate at once. Neon's default endpoint is PgBouncer in TRANSACTION mode, where
+# an advisory lock is taken on whatever backend happens to serve that statement and
+# released when the transaction ends - so the lock either fails or, worse, does not
+# mean what Rails thinks it means. storage/db.py has `connect(direct=True)` for the
+# same reason, and strips `-pooler` from the host to get it.
+#
+# config/database.yml also sets `advisory_locks: false`, so this is the second of
+# two defences rather than the only one.
+#
+# MIGRATE_DATABASE_URL is the direct host; DATABASE_URL is the pooled one the app
+# uses at runtime. If MIGRATE_DATABASE_URL is unset we fall back to DATABASE_URL
+# and say so, rather than silently doing the risky thing.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if [ -n "${MIGRATE_DATABASE_URL:-}" ]; then
+  echo "==> migrating via the direct (non-pooled) endpoint"
+  DATABASE_URL="$MIGRATE_DATABASE_URL" exec bin/rails db:migrate "$@"
+else
+  echo "==> MIGRATE_DATABASE_URL is not set; falling back to DATABASE_URL."
+  echo "    If that is the -pooler host, a migration may fail on the advisory lock."
+  exec bin/rails db:migrate "$@"
+fi
