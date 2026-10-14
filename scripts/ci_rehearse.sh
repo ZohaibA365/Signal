@@ -24,6 +24,9 @@
 #   bash scripts/ci_rehearse.sh          # rehearse, then remove the container
 #   CLEAN=1 bash scripts/ci_rehearse.sh  # also test in a CI-equivalent venv
 #   KEEP=1 bash scripts/ci_rehearse.sh   # leave it running to poke at by hand
+#
+# It also runs the Rails specs in tracker/ against a separate database in the
+# same container, and skips them with a message if Ruby is not installed.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -101,4 +104,49 @@ grep -a "Done\." "$log" | tail -1 | sed $'s/\033\[[0-9;]*m//g'
 echo "==> dbt build passed"
 
 psql_f < tests/fixtures/assert_ci_behaviour.sql || fail "behavioural assertions"
+echo "==> behavioural assertions passed"
+
+# --- the Rails app in tracker/ ---------------------------------------------
+#
+# Mirrors the `tracker` job in .github/workflows/ci.yml. Its own database inside
+# the same container, because spec/support/warehouse.rb runs
+# DROP TABLE public.apply_queue and must never be pointed at anything real - it
+# refuses unless the database name ends in _test and the host is local.
+#
+# Skipped, loudly, when Ruby is absent: this script is run by someone changing
+# the Python pipeline as often as not, and a missing Ruby should not read as a
+# broken build.
+if [ -d tracker ]; then
+  if ! command -v ruby >/dev/null 2>&1 || ! ruby -e 'exit(RUBY_VERSION >= "3.2")' 2>/dev/null; then
+    echo "==> SKIPPING tracker/ specs: no Ruby >= 3.2 on PATH"
+    echo "    install it with: brew install mise && mise use -g ruby@3.4.11"
+  else
+    docker exec -i "$NAME" psql "$DBURL" -v ON_ERROR_STOP=1 \
+      -c "DROP DATABASE IF EXISTS tracker_test" -c "CREATE DATABASE tracker_test" \
+      >/dev/null || fail "could not create tracker_test"
+
+    export RAILS_ENV=test
+    export TEST_DATABASE_URL="postgresql://signal:signal@localhost:$PORT/tracker_test"
+    # The app's own .env must not leak in: it points DATABASE_URL at Neon, and the
+    # specs would then refuse to run (correctly) or, without the guard, drop a
+    # production table.
+    unset DATABASE_URL MIGRATE_DATABASE_URL
+
+    log_rb="$(mktemp -t tracker_specs)"
+    (
+      cd tracker
+      # No --local path: the gems live wherever bundler already put them. Setting
+      # path vendor/bundle here once wrote 282 MB into the working tree, which is
+      # not something a rehearsal script should do to a repository.
+      bundle check >/dev/null 2>&1 || bundle install --quiet || exit 1
+      bin/rails db:schema:load || exit 1
+      bundle exec rubocop || exit 1
+      bundle exec brakeman --no-pager --quiet || exit 1
+      bundle exec rspec || exit 1
+    ) > "$log_rb" 2>&1 || { tail -40 "$log_rb"; fail "tracker/ specs - full log in $log_rb"; }
+    grep -aE "^[0-9]+ examples" "$log_rb" | tail -1
+    echo "==> tracker/ specs passed"
+  fi
+fi
+
 echo "==> REHEARSAL PASSED"

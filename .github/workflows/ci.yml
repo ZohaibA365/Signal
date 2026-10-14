@@ -105,3 +105,82 @@ jobs:
           psql "$PGURL" -c "\\dt" || true
           echo "--- dbt packages ---"
           ls dbt_signal/dbt_packages 2>/dev/null || echo "dbt_packages MISSING"
+
+  # The Rails app in tracker/. A separate job rather than more steps on `test`,
+  # because it shares nothing with the Python one: a different language, a
+  # different database, and no dbt. Running them in parallel also means a Ruby
+  # failure does not hide a Python one.
+  #
+  # Needs NO secrets, the same rule the job above follows: its own Postgres, its
+  # own schema, and stand-ins for the two warehouse relations the app reads. A
+  # suite that only runs when credentials are present is a suite that stops
+  # running.
+  tracker:
+    name: Rails app (tracker/)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tracker_test
+          POSTGRES_USER: signal
+          POSTGRES_PASSWORD: signal
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U signal"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      RAILS_ENV: test
+      # The test block in tracker/config/database.yml reads this. It points at a
+      # throwaway container, which matters: spec/support/warehouse.rb runs
+      # DROP TABLE public.apply_queue and refuses to run anywhere that is not
+      # obviously disposable.
+      TEST_DATABASE_URL: postgresql://signal:signal@localhost:5433/tracker_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          # Read from tracker/.ruby-version, so CI and the laptop cannot drift.
+          ruby-version-file: tracker/.ruby-version
+          bundler-cache: true
+          working-directory: tracker
+
+      - name: Load the Rails schema
+        working-directory: tracker
+        run: bin/rails db:schema:load
+
+      - name: Lint
+        working-directory: tracker
+        run: bundle exec rubocop
+
+      - name: Security scan
+        working-directory: tracker
+        run: bundle exec brakeman --no-pager --quiet
+
+      - name: Specs
+        working-directory: tracker
+        run: bundle exec rspec
+
+      # The proof that Rails cannot write to the warehouse, run as a test rather
+      # than left to whoever remembers the script. The CI database has no
+      # signal_rails role, so only the layers Rails itself enforces are checked
+      # here - database_tasks: false, replica: true and the readonly? overrides.
+      # The Postgres-role layer is proved against the real warehouse by hand.
+      - name: Prove the read-only split
+        working-directory: tracker
+        run: bundle exec rspec spec/models/warehouse_contract_spec.rb
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "--- versions ---"
+          ruby -v; cd tracker && bundle exec rails -v || true
+          echo "--- postgres reachable? ---"
+          psql "$TEST_DATABASE_URL" -c "select version()" || true
+          echo "--- schemas and tables ---"
+          psql "$TEST_DATABASE_URL" -c "\dn" || true
+          psql "$TEST_DATABASE_URL" -c "select schemaname, tablename from pg_tables where schemaname in ('tracker','public')" || true

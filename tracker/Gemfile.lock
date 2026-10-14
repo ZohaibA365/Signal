@@ -95,6 +95,7 @@ GEM
     debug (1.11.1)
       irb (~> 1.10)
       reline (>= 0.3.8)
+    diff-lcs (1.6.2)
     dotenv (3.2.0)
     dotenv-rails (3.2.0)
       dotenv (= 3.2.0)
@@ -238,6 +239,23 @@ GEM
     regexp_parser (2.13.1)
     reline (0.7.0)
       io-console (~> 0.5)
+    rspec-core (3.13.6)
+      rspec-support (~> 3.13.0)
+    rspec-expectations (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-mocks (3.13.8)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-rails (8.0.4)
+      actionpack (>= 7.2)
+      activesupport (>= 7.2)
+      railties (>= 7.2)
+      rspec-core (>= 3.13.0, < 5.0.0)
+      rspec-expectations (>= 3.13.0, < 5.0.0)
+      rspec-mocks (>= 3.13.0, < 5.0.0)
+      rspec-support (>= 3.13.0, < 5.0.0)
+    rspec-support (3.13.7)
     rubocop (1.92.0)
       json (>= 2.3)
       language_server-protocol (~> 3.17.0.2)
@@ -268,6 +286,8 @@ GEM
       rubocop-rails (>= 2.30)
     ruby-progressbar (1.13.0)
     securerandom (0.4.1)
+    shoulda-matchers (8.0.1)
+      activesupport (>= 7.2)
     stimulus-rails (1.3.4)
       railties (>= 6.0.0)
     tailwindcss-rails (4.6.0)
@@ -333,7 +353,9 @@ DEPENDENCIES
   propshaft
   puma (>= 5.0)
   rails (~> 8.1.4)
+  rspec-rails
   rubocop-rails-omakase
+  shoulda-matchers
   stimulus-rails
   tailwindcss-rails
   thruster

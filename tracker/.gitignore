@@ -4,8 +4,12 @@
 # belong in git's global ignore instead:
 # `$XDG_CONFIG_HOME/git/ignore` or `~/.config/git/ignore`
 
-# Ignore bundler config.
+# Ignore bundler config, and gems it vendors into the working tree.
+# `bundle config set --local path vendor/bundle` once wrote 282 MB here and
+# staged 8,873 files. Scoped to /vendor/bundle, not /vendor, because Rails ships
+# vendor/.keep and vendor/javascript/.keep and those belong in the repo.
 /.bundle
+/vendor/bundle/
 
 # Ignore all environment files.
 /.env*
