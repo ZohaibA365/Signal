@@ -45,6 +45,30 @@ class OutreachApproval < ApplicationRecord
     find_by(source: source, job_id: job_id)
   end
 
+  # The one canonical form a fingerprint is ever taken over.
+  #
+  # This exists because a draft that was NOT edited must still fingerprint equal to
+  # the text in the database, and two things get in the way:
+  #
+  #   HTML form submission normalises textarea line breaks to CRLF, while the agent
+  #   wrote the draft with LF. Without normalising, every approval of an unedited
+  #   draft would be instantly "stale" - the failure would look like the staleness
+  #   check working, which is the worst kind of bug.
+  #
+  #   A <textarea> element ignores one newline straight after its opening tag, so
+  #   the value round-trips with a leading blank line in some clients.
+  #
+  # agent/show_drafts.py applies the SAME transformation in SQL before hashing.
+  # If one side changes, both must. They are checked against each other by the
+  # approval-flow spec.
+  def self.canonical(text)
+    text.to_s.gsub(/\r\n?/, "\n").strip
+  end
+
+  def self.fingerprint_of(text)
+    Digest::SHA256.hexdigest(canonical(text))
+  end
+
   # Record a decision on a draft, pinning an approval to the exact text approved.
   #
   # `text` is what you actually approved - the draft as written, or your edit of
@@ -52,7 +76,7 @@ class OutreachApproval < ApplicationRecord
   # edited words and nothing else.
   def self.decide!(draft, decision:, text: nil)
     approved = decision.to_s == "approved"
-    body = approved ? (text.presence || draft.draft_email) : nil
+    body = approved ? canonical(text.presence || draft.draft_email) : nil
 
     record = find_or_initialize_by(source: draft.source, job_id: draft.job_id)
     record.assign_attributes(
@@ -74,6 +98,6 @@ class OutreachApproval < ApplicationRecord
   def stale_for?(draft)
     return false unless approved?
 
-    draft_fingerprint != Digest::SHA256.hexdigest(draft.draft_email.to_s)
+    draft_fingerprint != self.class.fingerprint_of(draft.draft_email)
   end
 end

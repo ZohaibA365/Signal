@@ -38,13 +38,48 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 log = logging.getLogger("show_drafts")
 
-PENDING = """
-    SELECT source || ':' || job_id AS job_id, company_name, job_title,
-           draft_source, draft_email, draft_connection, draft_followup, updated_at
-    FROM outreach_tracker
-    WHERE status = %(status)s
-      AND (%(company)s IS NULL OR company_name = %(company)s)
-    ORDER BY updated_at DESC
+# The canonical form a draft fingerprint is taken over.
+#
+# It MUST match OutreachApproval.canonical in tracker/app/models/outreach_approval.rb
+# exactly: CRLF (and bare CR) collapsed to LF, then leading and trailing whitespace
+# stripped. HTML form submission normalises textarea line breaks to CRLF while the
+# agent writes LF, so without this an approval of an UNEDITED draft would never
+# match and every approval would read as stale - a bug that looks exactly like the
+# staleness check working correctly.
+#
+# Defined once and interpolated, rather than written out at each of the three places
+# it is needed, because three copies of a hashing rule is three chances to drift.
+CANONICAL = (
+    "btrim(replace(replace({col}, chr(13) || chr(10), chr(10)), chr(13), chr(10)),"
+    " ' ' || chr(9) || chr(10))"
+)
+FINGERPRINT = "encode(sha256((" + CANONICAL + ")::bytea), 'hex')"
+
+
+# NOTE ON COLUMN ORDER: show() and write_page() unpack this row by name, so a new
+# column is safe to append at the END. It is NOT safe to insert one in the middle:
+# both functions pick the draft variant out of the (email, connection, followup)
+# triple by position, and an earlier insertion would print the wrong variant.
+#
+# The starred unpacking these functions used before - `*drafts, updated` - absorbed
+# any new column silently and shifted everything after it, which is how adding the
+# approval column below first handed a timestamp format string a plain string.
+PENDING = f"""
+    SELECT t.source || ':' || t.job_id AS job_id, t.company_name, t.job_title,
+           t.draft_source, t.draft_email, t.draft_connection, t.draft_followup,
+           t.updated_at,
+           CASE
+             WHEN a.decision IS NULL THEN 'not reviewed'
+             WHEN a.decision <> 'approved' THEN a.decision
+             WHEN a.draft_fingerprint = {FINGERPRINT.format(col='t.draft_email')} THEN 'approved'
+             ELSE 'approved, now stale'
+           END AS approval
+    FROM outreach_tracker t
+    LEFT JOIN tracker.outreach_approvals a
+           ON a.source = t.source AND a.job_id = t.job_id
+    WHERE t.status = %(status)s
+      AND (%(company)s IS NULL OR t.company_name = %(company)s)
+    ORDER BY t.updated_at DESC
 """
 
 
@@ -56,14 +91,23 @@ def show(cur, args) -> int:
                  f" for {args.company}" if args.company else "")
         return 0
 
-    column = {"email": 4, "connection": 5, "followup": 6}[args.variant]
-    for job_id, company, title, source, *drafts, updated in rows:
-        text = (job_id, company, title, source, *drafts, updated)[column]
+    # Unpacked by NAME, not with a starred catch-all. The previous form was
+    # `job_id, company, title, source, *drafts, updated`, which silently absorbed
+    # any new column into `drafts` and shifted `updated` - so adding the approval
+    # column below made a timestamp format string receive a string. Explicit names
+    # fail loudly on a shape change instead.
+    variant_column = {"email": 0, "connection": 1, "followup": 2}[args.variant]
+    for (job_id, company, title, source,
+         draft_email, draft_connection, draft_followup,
+         updated, approval) in rows:
+        text = (draft_email, draft_connection, draft_followup)[variant_column]
         print("\n" + "=" * 78)
         print(f"{company} - {title}")
         # Who wrote it is printed with the draft rather than buried, because it
-        # changes how closely the thing below should be read.
+        # changes how closely the thing below should be read. The approval state
+        # goes here too: it decides whether --mark-sent will accept this one.
         print(f"{job_id}    written by the {source}, {updated:%Y-%m-%d %H:%M}")
+        print(f"{'':<{len(job_id)}}    approval: {approval}")
         print("=" * 78)
         print(text or "(no draft stored for this variant)")
 
@@ -103,7 +147,7 @@ PAGE_HEAD = """<!doctype html><meta charset="utf-8">
 """
 
 
-def write_page(rows, column, path: str) -> None:
+def write_page(rows, variant_column, path: str) -> None:
     """
     The same drafts as a page, because copying out of a terminal is miserable.
 
@@ -118,18 +162,52 @@ def write_page(rows, column, path: str) -> None:
         parts.append(f'<div class="warn"><b>{len(rows)} drafts, {len(companies)} '
                      f'companies.</b> The message is written about the company, not '
                      f'the specific role, so send one per company.</div>')
-    for job_id, company, title, source, *drafts, updated in rows:
-        text = (job_id, company, title, source, *drafts, updated)[column]
+    # Unpacked by name for the same reason as show(): a starred catch-all silently
+    # absorbs any new column and shifts everything after it.
+    for (job_id, company, title, source,
+         draft_email, draft_connection, draft_followup,
+         updated, approval) in rows:
+        text = (draft_email, draft_connection, draft_followup)[variant_column]
         parts.append(
             f'<div class="d">'
             f'<button onclick="navigator.clipboard.writeText('
             f'this.parentNode.querySelector(&quot;pre&quot;).innerText)">copy</button>'
             f'<p class="h">{_html.escape(company or "")} '
-            f'<span class="tag">{_html.escape(source or "?")}</span></p>'
-            f'<p class="m">{_html.escape(title or "")}<br>{_html.escape(job_id)}</p>'
+            f'<span class="tag">{_html.escape(source or "?")}</span> '
+            # The approval state belongs next to the text, because it decides
+            # whether --mark-sent will accept this draft at all.
+            f'<span class="tag">{_html.escape(approval or "?")}</span></p>'
+            f'<p class="m">{_html.escape(title or "")}<br>{_html.escape(job_id)}'
+            f'<br>{updated:%Y-%m-%d %H:%M}</p>'
             f'<pre>{_html.escape(text or "(no draft stored)")}</pre></div>')
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(parts))
+
+
+# Whether a draft has been approved by a person, and whether that approval still
+# covers the text that is there now.
+#
+# tracker.outreach_approvals is written by the Rails app in tracker/. The approval
+# records a sha256 of the exact text approved, so an approval cannot be stretched
+# to cover a later redraft: agent/tools.py's upsert uses coalesce, which means a
+# draft column keeps its old text rather than being cleared, and the agent can
+# therefore change the words under an approval that was given in good faith.
+#
+# Deliberately a separate table and not a new `status` value. agent/tools.py:41-49
+# specifies the shape - "already at 'email_drafted' AND carries an explicit human
+# approval marker" - and a new status would break three things: ALREADY_DRAFTED in
+# agent/schemas.py is derived by SLICING STATUSES so the order is semantic, the
+# UPDATE below guards on status = 'email_drafted' exactly, and draft_is_allowed
+# rejects anything outside STATUSES.
+APPROVAL = f"""
+    SELECT t.status,
+           a.decision,
+           a.draft_fingerprint = {FINGERPRINT.format(col='t.draft_email')} AS current
+    FROM outreach_tracker t
+    LEFT JOIN tracker.outreach_approvals a
+           ON a.source = t.source AND a.job_id = t.job_id
+    WHERE t.source = %s AND t.job_id = %s
+"""
 
 
 def mark_sent(cur, job_id: str) -> None:
@@ -139,13 +217,60 @@ def mark_sent(cur, job_id: str) -> None:
     This is the transition the agent is forbidden to make, and it lives in a
     separate program run by hand for that reason: 'email_sent' is a claim about the
     world, and only the person who acted can make it truthfully.
+
+    It now also requires an approval recorded in the Rails app, and says which of
+    the four possible reasons it is refusing for. A single "no draft awaiting a
+    send" covering all of them would send you looking at the wrong thing - the same
+    mistake the service made when a dead planner was reported as "the run could not
+    be completed", which was true of the planner and false of everything else.
     """
     parts = split_job_id(job_id)
     if parts is None:
         raise SystemExit(f"{job_id!r} is not in the form 'source:job_id'")
-    cur.execute("""
+
+    try:
+        cur.execute(APPROVAL, parts)
+    except Exception as exc:                                     # noqa: BLE001
+        # The approvals table lives in a schema this script does not own. If it
+        # cannot be read, refuse rather than fall back to sending unapproved.
+        raise SystemExit(
+            f"cannot read tracker.outreach_approvals ({type(exc).__name__}), "
+            "so approval cannot be confirmed. Nothing was marked as sent."
+        ) from exc
+
+    row = cur.fetchone()
+    if row is None:
+        raise SystemExit(f"no draft at all for {job_id}")
+
+    status, decision, approval_is_current = row
+    if status != "email_drafted":
+        raise SystemExit(f"{job_id} is at status {status!r}, not 'email_drafted'")
+    if decision is None:
+        raise SystemExit(
+            f"{job_id} has not been approved. Approve it in the tracker app first "
+            "(Approvals tab); nothing was marked as sent."
+        )
+    if decision != "approved":
+        raise SystemExit(f"{job_id} was {decision}, not approved")
+    if not approval_is_current:
+        raise SystemExit(
+            f"the draft for {job_id} changed after it was approved, so the approval "
+            "no longer covers what would be sent. Re-approve it in the tracker app."
+        )
+
+    # The EXISTS clause repeats the check the branches above already made. That is
+    # on purpose: the read and the write are separate statements, and this is the
+    # one action in the system that cannot be undone.
+    cur.execute(f"""
         UPDATE outreach_tracker SET status = 'email_sent', updated_at = NOW()
         WHERE source = %s AND job_id = %s AND status = 'email_drafted'
+          AND EXISTS (
+            SELECT 1 FROM tracker.outreach_approvals a
+            WHERE a.source = outreach_tracker.source
+              AND a.job_id = outreach_tracker.job_id
+              AND a.decision = 'approved'
+              AND a.draft_fingerprint = {FINGERPRINT.format(col='outreach_tracker.draft_email')}
+          )
     """, parts)
     if cur.rowcount == 0:
         raise SystemExit(f"no draft awaiting a send for {job_id}")
@@ -174,8 +299,8 @@ def main() -> None:
                 if not rows:
                     log.info("no drafts at status %r", args.status)
                     return
-                column = {"email": 4, "connection": 5, "followup": 6}[args.variant]
-                write_page(rows, column, args.html)
+                variant_column = {"email": 0, "connection": 1, "followup": 2}[args.variant]
+                write_page(rows, variant_column, args.html)
                 log.info("wrote %s (%s draft(s))", args.html, len(rows))
                 if sys.platform == "darwin":
                     import subprocess

@@ -1,0 +1,31 @@
+<% content_for :title, "Approvals" %>
+
+<div class="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+  <header class="mb-5 border-b border-gray-200 pb-4">
+    <h1 class="text-2xl font-medium tracking-tight text-gray-900">Outreach approvals</h1>
+    <p class="mt-1 max-w-prose text-sm text-gray-500">
+      Drafts the agent wrote, from <code class="font-mono text-xs">public.outreach_tracker</code>.
+      Nothing is sent from here — approving records your decision, and
+      <code class="font-mono text-xs">agent/show_drafts.py --mark-sent</code> refuses
+      without it.
+    </p>
+    <p class="mt-2 font-mono text-xs text-gray-500">
+      <%= @drafts.size %> awaiting · <%= @decided %> approved
+    </p>
+  </header>
+
+  <% if @drafts.empty? %>
+    <div class="py-16 text-center">
+      <p class="text-sm text-gray-500">No drafts waiting.</p>
+      <p class="mt-1 text-xs text-gray-400">
+        The agent writes them with <code class="font-mono">python agent/agent.py</code>.
+      </p>
+    </div>
+  <% else %>
+    <div class="space-y-4">
+      <% @drafts.each do |draft| %>
+        <%= render "draft", draft: draft, approval: @approvals[draft.key] %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

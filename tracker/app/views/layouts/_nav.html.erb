@@ -7,7 +7,8 @@
       <span class="text-sm font-semibold tracking-tight text-gray-900">Signal</span>
 
       <% [ [ "Postings", postings_path, controller_name == "postings" ],
-           [ "Tracker", job_applications_path, controller_name.start_with?("job_application") ] ].each do |label, path, active| %>
+           [ "Tracker", job_applications_path, controller_name.start_with?("job_application") ],
+           [ "Approvals", outreach_approvals_path, controller_name == "outreach_approvals" ] ].each do |label, path, active| %>
         <%= link_to label, path,
               "aria-current": (active ? "page" : nil),
               class: "text-sm #{active ? 'font-medium text-gray-900' : 'text-gray-500 hover:text-gray-900'}" %>

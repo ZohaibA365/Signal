@@ -10,6 +10,11 @@ Rails.application.routes.draw do
     resources :notes, only: [ :create, :destroy ], controller: "job_application_notes"
   end
 
+  # The approval queue. `create` records a decision; there is no destroy, because
+  # un-approving by deleting the row would leave no trace that you had approved it.
+  # Changing your mind is a new decision on the same (source, job_id).
+  resources :outreach_approvals, path: "approvals", only: [ :index, :create ]
+
   # Password reset was removed with PasswordsController: it needs Action Mailer to
   # deliver a token, and Action Mailer is deliberately not installed (this app
   # never sends anything). For one user, a reset is `bin/rails db:seed`.

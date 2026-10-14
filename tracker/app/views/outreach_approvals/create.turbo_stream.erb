@@ -1,0 +1,6 @@
+<%# One target: the decision block inside the card. The banner, the hint and the
+    textarea's stored value all come from the same partial, so they cannot
+    disagree about what was decided. %>
+<%= turbo_stream.replace dom_id_for_decision(@draft) do %>
+  <%= render "outreach_approvals/decision", draft: @draft, approval: @approval %>
+<% end %>

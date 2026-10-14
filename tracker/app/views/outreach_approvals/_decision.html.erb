@@ -1,0 +1,52 @@
+<%# Replaced in place when you decide, so the card updates and the page does not
+    move. One target for all three outcomes. %>
+<div id="<%= dom_id_for_decision(draft) %>">
+
+  <% if approval&.approved? && approval.stale_for?(draft) %>
+    <%# The important state. agent/tools.py's upsert uses coalesce, so the agent
+        can redraft without clearing the old text. If that happened after you
+        approved, your approval authorised words that are no longer what would be
+        sent - so it is stale, not valid, and the send guard refuses it too. %>
+    <div class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <strong>The agent redrafted this after you approved it.</strong>
+      Your approval covered different words, so it no longer counts — read the
+      current draft below and approve again if you still want it sent.
+    </div>
+  <% elsif approval %>
+    <div class="mb-3 text-xs <%= approval.approved? ? 'text-emerald-800' : 'text-gray-500' %>">
+      <strong><%= approval.approved? ? "Approved" : "Rejected" %></strong>
+      <%= time_ago_in_words(approval.decided_at) %> ago<%
+        %><% if approval.approved? && approval.approved_text != draft.draft_email %>, with your edits<% end %>.
+      <% if approval.approved? %>
+        <span class="text-gray-500">
+          Send it with
+          <code class="font-mono">python agent/show_drafts.py --mark-sent <%= draft.key %></code>
+        </span>
+      <% end %>
+    </div>
+  <% end %>
+
+  <%# The draft itself, editable. Submitting the textarea with "Approve" stores
+      exactly what is in the box, so editing and approving are one action rather
+      than two - there is no save-then-approve to get half-done. %>
+  <%= form_with url: outreach_approvals_path, method: :post, class: "space-y-2" do |f| %>
+    <%= hidden_field_tag :draft_key, draft.key %>
+
+    <%= text_area_tag :approved_text,
+          (approval&.approved_text.presence || draft.draft_email),
+          rows: 12,
+          class: "w-full rounded-md border-gray-300 font-mono text-xs leading-relaxed shadow-sm focus:border-blue-500 focus:ring-blue-500" %>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <%= f.submit "Approve", name: "decision", value: "approved",
+            class: "cursor-pointer rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500" %>
+
+      <%= f.submit "Reject", name: "decision", value: "rejected",
+            class: "cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50" %>
+
+      <span class="text-xs text-gray-400">
+        Approving stores the text above, and nothing is sent.
+      </span>
+    </div>
+  <% end %>
+</div>

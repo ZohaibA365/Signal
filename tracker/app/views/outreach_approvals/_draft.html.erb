@@ -1,0 +1,30 @@
+<%# One draft, with its decision.
+    `approval` is nil until you decide. A decision can be replaced by a later one
+    on the same (source, job_id) - there is no un-approve, because deleting the row
+    would leave no trace that you had approved it. %>
+<article id="<%= dom_id_for_draft(draft) %>"
+         class="rounded-lg border <%= draft_border_class(draft, approval) %> bg-white p-4">
+
+  <header class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div class="min-w-0">
+      <h2 class="font-medium text-gray-900"><%= draft.company_name %></h2>
+      <p class="mt-0.5 text-xs text-gray-500"><%= draft.job_title %></p>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-2">
+      <%# Who wrote the prose. compose.py interpolates every figure from a
+          SQL-derived record; draft.py lets the model write and keeps it only if
+          verify.py can prove every number. Worth knowing before you read it. %>
+      <% if draft.model_written? %>
+        <%= posting_badge "model-written, verified", :ok %>
+      <% else %>
+        <%= posting_badge "template", :neutral %>
+      <% end %>
+      <span class="font-mono text-xs text-gray-400">
+        <%= time_ago_in_words(draft.updated_at) %> ago
+      </span>
+    </div>
+  </header>
+
+  <%= render "decision", draft: draft, approval: approval %>
+</article>
