@@ -32,34 +32,13 @@ export function JobBoard({ dataUrl }: { dataUrl: string }) {
   return (
     <>
       <section className="border-b border-line">
-        <div className="mx-auto max-w-page px-4 pb-6 pt-8 sm:px-5">
-          {/* Asymmetric: the claim on the left, the figure that backs it on the
-              right. Centring both is the pattern every landing page uses and it
-              says nothing about which of the two is the point. */}
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-prose">
-              {/* Three steps, not two. 44px is the right opening size on a tablet and
-                  too wide on a 390px phone: "every link direct." alone measures wider
-                  than the screen, and a headline that wraps mid-phrase reads as a
-                  mistake. */}
-              <h1 className="font-display text-h1 font-medium leading-[1] text-text sm:text-display-2 lg:text-display-1 lg:leading-[0.98]">
-                Data &amp; AI jobs,
-                <br />
-                <span className="italic text-text-2">every link direct.</span>
-              </h1>
-              <p className="mt-4 text-body text-text-2">
-                United States and Canada, updated daily. Aggregator links are excluded
-                because they break outside the posting&rsquo;s own country.
-              </p>
-            </div>
-            <p className="tabular shrink-0 font-mono text-data text-text-3 lg:text-right">
-              <Counter search={s} />
-            </p>
-          </div>
+        <div className="mx-auto max-w-page px-4 pb-6 pt-6 sm:px-5">
+          {/* No hero. The nav already carries the name, and a job board's first
+              job is to let someone search, not to be introduced to. */}
 
           {/* Seven controls, the same seven the site has today. A grid that reflows
               to one column on a phone rather than a row that scrolls. */}
-          <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-filters">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-filters">
             <Input
               type="search"
               value={s.queryText}
@@ -199,18 +178,6 @@ export function JobBoard({ dataUrl }: { dataUrl: string }) {
           </p>
         </div>
       </div>
-    </>
-  );
-}
-
-/** The size of the searchable set, stated where the claim is made. */
-function Counter({ search }: { search: ReturnType<typeof useJobSearch> }) {
-  if (!search.ready) return null;
-  return (
-    <>
-      {num(search.rows.length)} roles searchable
-      <br />
-      <span className="text-text-3">filtered in your browser</span>
     </>
   );
 }
