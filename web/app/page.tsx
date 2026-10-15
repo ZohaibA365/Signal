@@ -1,7 +1,7 @@
 import { JobBoard } from "@/components/JobBoard";
 
 export const metadata = {
-  title: "Data & AI jobs — US and Canada, updated daily",
+  title: "Jobs",
 };
 
 /**
