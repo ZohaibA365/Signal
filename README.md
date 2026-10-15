@@ -9,8 +9,8 @@ them through a warehouse, and publishes two things. There is a searchable job bo
 where every link goes straight to the employer. There is also a market index
 tracking what the market is actually hiring for.
 
-I started this because I needed a US internship as a Canadian student. The market
-turned out to be more interesting than any single posting.
+It is aimed at people who need to know which employers actually sponsor work
+authorisation, which is the question job boards are worst at answering.
 
 ---
 
@@ -70,7 +70,7 @@ Claude API (eligibility, fit, reasoning) ────────────┘
 | Frontend | React 19, TypeScript (strict), Next.js static export, Tailwind |
 | Internal tool | Ruby 3.4 / Rails 8.1, Hotwire, RSpec, reads the warehouse and owns one schema |
 | Delivery | 1,248 prerendered pages on Vercel, no server |
-| Testing | pytest (529 tests), 97 dbt tests, CI with a Postgres service |
+| Testing | pytest (544 tests), 108 RSpec examples, 97 dbt tests, CI with a Postgres service |
 
 ## Scale
 
@@ -153,13 +153,14 @@ something plausible.
 
 ---
 
-## The private half: a Rails app over the same warehouse
+## The internal tool
 
-`tracker/` is a single-user Rails 8 app I use to work the pipeline's output daily. I
-browse roles with their eligibility and fit scores, track each application from
-saved through applied, interviewing and then rejected or offer, and approve the
-agent's drafts before any of them can be marked as sent. It is password-protected
-and holds my real applications, so it is not part of the public site.
+`tracker/` is a Rails 8 app for working the pipeline's output. It browses roles
+with their eligibility and fit scores, tracks each application from saved through
+applied, interviewing and then rejected or offer, and approves the agent's drafts
+before any of them can be marked as sent. It sits behind a login and is not part of
+the public site. There is a read-only sample account on the sign-in page if you
+want to see it.
 
 The interesting constraint is not the app. It is the boundary. **Rails can read the
 warehouse and is structurally incapable of writing to it**, enforced three times
@@ -193,65 +194,14 @@ redrafts afterwards the approval is recognisably stale rather than silently
 authorising words nobody read. `agent/show_drafts.py --mark-sent` refuses without it
 and names which of four things is wrong.
 
-Running it locally:
+Running the tracker locally:
 
 ```bash
 cd tracker && bin/dev                       # http://localhost:3000
 bin/rails runner script/verify_isolation.rb # prove the read-only split
 bin/rails tracker:backfill DRY_RUN=1        # what it would save from the queue
-bundle exec rspec                           # 90 examples
+bundle exec rspec                           # 108 examples
 ```
-
----
-
-## Engineering notes
-
-Things that went wrong and what fixed them:
-
-- Ranking happened at the wrong grain. Marts ranked at *posting* grain, so one BAE
-  Systems internship posted across twelve cities occupied the entire top twelve. I
-  corrected it to one row per distinct role. A second variant appeared later. Some
-  employers put the city inside the *title*, so a `normalised_title` macro strips it.
-
-- I published a number that was false. The trend model reported "Python demand fell
-  70%". Months older than about 5 held only 45 to 241 postings, where one posting
-  swings a share by a point. Survivorship bias compounded it, since an old posting
-  only appears if it is *still listed*. I raised the threshold from 50 to 500.
-
-- The same error nearly shipped twice more. A company page rendered "Google's hiring
-  is up 2600%", and the identical claim was the highest-ranked outreach insight. That
-  is the sentence that would have opened a cold email to Google. Job boards delist
-  filled roles, so a freshly collected corpus always shows more recent postings than
-  older ones. Corpus-wide the artifact reads as 1.9×. Month-over-month claims are now
-  gated on 45 days of collection history.
-
-- An aggregator was wearing a board's clothing. Jobgether has a genuine Lever board
-  and is not an employer. It republishes other companies' roles under its own name,
-  so 1,368 postings arrived with the wrong employer and a link to a middleman.
-  Nothing in the name signals it, so such companies have to be listed explicitly.
-
-- A load succeeded into the wrong database. Three pipeline stages built their own
-  connection from `POSTGRES_*` instead of the shared helper, writing to the local
-  container while dbt and the site read the hosted warehouse. It reported "6,957 new,
-  31,221 total" while the published site served old numbers. In CI, where those
-  variables are unset, the same stages failed every run.
-
-- Snowflake portability broke in three silent ways. `FILTER (WHERE)`, the `~*`
-  operator and named `WINDOW` clauses are unsupported. Unanchored `regexp_like`
-  matched 1,590 internships on Postgres and 0 on Snowflake, the same query silently
-  disagreeing. It was also matching "Internal Auditor" as an internship.
-
-- On Databricks a type changed underneath the SQL. Date minus date is an integer on
-  Postgres and Snowflake and an `INTERVAL DAY` on Spark, so `days_since_posted`
-  silently changed type on the third engine. It only announced itself when something
-  compared it with 60. Three more of the same shape followed. `regexp_like` takes no
-  flags argument on Spark, `'YYYY-MM'` is rejected where `YYYY` means the week-based
-  year, and no format string produces "Jun 2011" on all three. Each is now a portable
-  expression, verified identical on Postgres before and after.
-
-- 352 API calls were doomed before they ran. When credit ran out, enrichment ground
-  through 352 identical failures logging an opaque "API error 400". It now logs the
-  real message and aborts after three consecutive account errors.
 
 ---
 
@@ -370,4 +320,4 @@ measured against.
 
 ---
 
-Built by [Zohaib](https://github.com/ZohaibA365) · Management Engineering, University of Waterloo
+Built by [Zohaib](https://github.com/ZohaibA365)
