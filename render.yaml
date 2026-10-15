@@ -24,7 +24,12 @@ services:
     branch: main
     rootDir: tracker
     buildCommand: ./bin/render-build.sh
-    startCommand: bundle exec puma -C config/puma.rb
+    # Bind explicitly rather than trusting config/puma.rb to pick up $PORT.
+    # Puma's `port` directive defaults to 0.0.0.0, but if PORT is ever unset the
+    # app listens on 3000, Render's proxy keeps waiting on its own port, and the
+    # symptom is a request that completes TLS and then never receives a byte -
+    # not an error anywhere, just a hang. Naming the bind removes that failure.
+    startCommand: bundle exec puma -C config/puma.rb -b tcp://0.0.0.0:$PORT
     # /up returns 200 without touching the database, so a sleeping Neon compute
     # cannot make Render think the app is unhealthy. Verified in production mode.
     healthCheckPath: /up
