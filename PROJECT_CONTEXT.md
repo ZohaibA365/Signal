@@ -5,7 +5,8 @@
 > contributor) so it understands the whole system without reading 30,000 lines.
 >
 > **Live:** https://signal-jobsite.vercel.app · **Repo:** https://github.com/ZohaibA365/Signal
-> **Numbers verified:** 2026-10-07, against the production warehouse.
+> **Numbers verified:** 2026-10-15, against the production warehouse.
+> **Every figure for a CV is in §20, checked the day this was written.**
 > **Contains no credentials.** Every secret is referenced by variable name only.
 
 ---
@@ -57,12 +58,12 @@ sponsorship**. Two consequences show up all over the codebase:
 
 ---
 
-## 2. Current scale (verified 2026-10-07)
+## 2. Current scale (verified 2026-10-15)
 
 | Measure | Value | How to re-derive |
 |---|---|---|
-| Raw postings collected | **98,421** | `select count(*) from raw_postings` |
-| Postings after dedup (fact grain) | **87,048** | `select count(*) from fct_job_posting` |
+| Raw postings collected | **107,548** | `select count(*) from raw_postings` |
+| Postings after dedup (fact grain) | **93,287** | `select count(*) from fct_job_posting` |
 | — from employers' own boards | **68,674** | `… where source='company_board'` |
 | — from the aggregator | **18,374** | `… where source='adzuna'` |
 | Companies | **4,928** | `select count(*) from dim_company` |
@@ -1259,7 +1260,80 @@ thesis and should not be relaxed casually.
 
 ---
 
-## 12. Engineering notes — what went wrong, and what fixed it
+## 12. The Rails app (`tracker/`)
+
+A single-user Rails 8.1 app on the same Neon Postgres the Python pipeline fills.
+Password-protected, deployed free on Render, and not part of the public site: it
+holds one person's real applications and draft emails.
+
+Three screens. **Browse** the 71,778 rows of `apply_queue` with their Claude
+eligibility and fit scores — eight filters, four sorts, results in a Turbo Frame.
+**Track** a role through saved → applied → interviewing → rejected/offer with
+dated notes. **Approve** the agent's drafts before anything can be marked sent.
+
+### Rails cannot write to the warehouse
+
+The pipeline owns the data; this app reads it. Enforced three times, and only the
+third is beyond the reach of a mistake in the Rails codebase:
+
+1. **`database_tasks: false`** on the warehouse connection — it is excluded from
+   migrations, schema management and seeds entirely, so a migration cannot target
+   a dbt relation even by accident.
+2. **`replica: true`** plus a `readonly?` override — ActiveRecord refuses writes.
+3. **A `signal_rails` Postgres role** with `SELECT` on two named tables and no
+   write grant anywhere in `public`.
+
+`tracker/script/verify_isolation.rb` *proves* it the way `service/sandbox.py`
+does — by attempting eleven forbidden writes and failing loudly if any succeeds —
+and it requires each refusal to come for the **right reason**. An earlier version
+reported a check as passing when the write had actually failed on a missing
+table.
+
+### Two defects it surfaced
+
+**The connection pooler silently swapped the two schemas.** Through Neon's
+default endpoint the `primary` and `warehouse` connections had separate Rails
+pools and separate client objects but reported the **same `pg_backend_pid()`** —
+PgBouncer in transaction mode multiplexing them onto one backend, where
+`search_path` is session state. `warehouse` began resolving `outreach_tracker`
+inside `tracker`, where it does not exist. The whole read-only split depends on
+those paths differing, so the app and its migrations use the direct endpoint, and
+the proof script asserts the pids differ.
+
+**Every approval read as stale the moment it was made.** HTML form submission
+normalises textarea line breaks to CRLF; the agent writes LF. So an *unedited*
+draft could never fingerprint-match — and the symptom was the staleness banner
+appearing immediately, which looks exactly like the check working. One canonical
+form now, implemented in Ruby and in SQL, with a spec asserting the two produce
+identical hashes against a real Postgres.
+
+### Approval is a marker, not a status
+
+`agent/tools.py:41-49` already specified the shape: a send must refuse unless the
+row is at `email_drafted` **and** carries an explicit human approval. A new status
+value would break three things, including that `ALREADY_DRAFTED` is derived by
+*slicing* `STATUSES`. So approval is a Rails-owned row pinned to a **SHA-256 of
+the exact text approved** — if the agent redrafts afterwards the approval is
+recognisably stale rather than silently authorising words nobody read.
+`agent/show_drafts.py --mark-sent` refuses without a current one and names which
+of four things is wrong.
+
+### A public sample account
+
+`sample@signal.app` / `sample-account`, credentials on the sign-in page. It sees
+only seeded invented data, never the owner's rows and never the real agent drafts
+(it reads a `DemoDraft` table instead). Every non-GET request from it is refused
+in `ApplicationController`, before any action runs — a hidden button is a
+suggestion, a rejected request is a rule.
+
+`tracker/spec/requests/demo_isolation_spec.rb` is **18 examples** over both halves:
+what it cannot read and what it cannot write. Verified by deliberately unscoping
+the tracker query and the draft source and confirming the spec went red both
+times.
+
+---
+
+## 13. Engineering notes — what went wrong, and what fixed it
 
 These are the most useful pages of this document. Several are subtle and would
 otherwise be reintroduced.
@@ -1366,7 +1440,7 @@ otherwise be reintroduced.
 
 ---
 
-## 13. Repository layout
+## 14. Repository layout
 
 ```
 ingestion/      ATS adapters (ats/), board discovery + ingest, aggregator,
@@ -1383,6 +1457,7 @@ site/           warehouse → JSON export for the frontend; legacy Jinja generat
 web/            Next.js frontend — React 19, TypeScript, Tailwind, static export
 agent/          the outreach agent: tool loop, verifier rails, recorded runs
 service/        FastAPI streaming endpoint, sandbox, limits, leak check, resolve
+tracker/        Rails 8 app: browse roles, track applications, approve drafts
 outreach/       per-company insights, deterministic composition, visitor messages
 streaming/      Kafka producer and alerting consumer
 orchestration/  Airflow DAG
@@ -1395,7 +1470,7 @@ tests/          pytest suite (529 tests)
 
 ---
 
-## 14. Running it
+## 15. Running it
 
 ```bash
 git clone https://github.com/ZohaibA365/Signal.git && cd Signal
@@ -1444,7 +1519,7 @@ to postings the site can actually publish — scoring one it cannot show buys no
 
 ---
 
-## 15. Testing discipline
+## 16. Testing discipline
 
 529 pytest tests, 97 dbt tests. Two properties are worth copying:
 
@@ -1480,7 +1555,7 @@ cryptography) — so the main suite stays runnable everywhere.
 
 ---
 
-## 16. Conventions — how to write code that fits
+## 17. Conventions — how to write code that fits
 
 Follow these when contributing; the codebase is consistent about them.
 
@@ -1515,7 +1590,7 @@ Follow these when contributing; the codebase is consistent about them.
 
 ---
 
-## 17. Known issues and outstanding work
+## 18. Known issues and outstanding work
 
 | Issue | Severity | Detail |
 |---|---|---|
@@ -1531,7 +1606,7 @@ Follow these when contributing; the codebase is consistent about them.
 
 ---
 
-## 18. What the data currently shows (2026-10-07)
+## 19. What the data currently shows
 
 Re-derive before quoting — these move weekly.
 
@@ -1552,7 +1627,7 @@ named together because the teams hiring for one are evaluating both.
 
 ---
 
-## 19. Quick orientation for an assistant
+## 20. Quick orientation for an assistant
 
 If you are picking this up cold, read in this order:
 
@@ -1580,3 +1655,82 @@ Things to be careful about:
   the REST path in `storage/build_on_databricks.py` is not a workaround to be tidied
   away.
 - **Re-derive numbers** rather than copying them from documentation, including this file.
+
+---
+
+## 21. Verified numbers
+
+Measured 2026-10-15 against the production warehouse and the repository. Every
+one is re-derivable by the command beside it. **Use these rather than anything
+quoted elsewhere in this file** — the corpus grows daily and prose goes stale.
+
+### The data platform
+
+| | | How |
+|---|---|---|
+| Raw postings collected | **107,548** | `select count(*) from raw_postings` |
+| Postings after dedup | **93,287** | `select count(*) from fct_job_posting` |
+| Companies | **5,522** | `select count(*) from dim_company` |
+| Career boards resolved | **1,627** | `board_registry where status='resolved'` |
+| ATS board adapters | **9** | `ls ingestion/ats/` minus `base.py` and `__init__.py` |
+| Technology mentions | **294,091** | `select count(*) from posting_technologies` |
+| Technologies tracked | **120** | `select count(*) from dim_technology` |
+| DOL visa filings processed | **595,431** | `select sum(filings) from dol_employer_summary` |
+| Companies matched to a DOL filer | **1,740** | `select count(*) from company_employer_link` |
+| Postings scored by Claude | **4,280** | `select count(*) from job_enrichment` |
+| Rows in the browsable mart | **71,778** | `select count(*) from apply_queue` |
+| Database size | **284 MB** of a 512 MB ceiling | `pg_database_size` |
+| Published pages | **1,248** | `grep -c '<loc>' sitemap.xml` |
+
+### Transformation and correctness
+
+| | |
+|---|---|
+| dbt models | **15** (2 views, 11 tables, 2 incremental) |
+| dbt tests | **97**, across **113** nodes |
+| Engine parity comparisons | **21** (4 source counts + 17 checks) across Postgres, Snowflake, Databricks |
+| Python tests | **544** |
+| RSpec examples | **108** |
+| **Total automated tests** | **649** (544 + 108, excluding dbt's 97) |
+
+### Code
+
+| Language | Lines |
+|---|---|
+| Python | **20,817** |
+| Ruby | **3,583** across 60 files |
+| SQL (dbt models) | **2,428** |
+| TypeScript / TSX | **3,454** |
+| ERB templates | **651** |
+
+### The Rails app specifically
+
+| | |
+|---|---|
+| Tables it owns | **8**, in schema `tracker` |
+| Warehouse relations it reads | **2**, read-only |
+| dbt models it is blocked from writing | **15** |
+| Isolation-proof assertions | **12** forbidden writes attempted |
+| Demo-isolation examples | **18** |
+| Hosting | **$0/month**, Render free tier |
+| Cold start | **~40s** after 15 min idle; **$7/mo** removes it |
+
+### Phrases that are accurate
+
+- "ingesting 107K+ job postings across 9 career-board APIs and 595K+ federal visa filings"
+- "15 dbt models, 97 dbt tests, 21 cross-engine parity checks"
+- "649 automated tests across Python and Ruby"
+- "database-enforced read-only access to 15 dbt-built models"
+- "SHA-256-pinned human approval on LLM output"
+- "deployed at $0/month by reusing the existing warehouse"
+
+### Phrases that are NOT accurate
+
+- ~~"520+ tests"~~ — outdated, it is 649
+- A note on adapters: there are **10 files** in `ingestion/ats/` but **9 adapters**
+  — `base.py` is shared plumbing and `__init__.py` is not one. Nine is the figure
+  to use, and it is what the CV already says.
+- ~~"71K postings"~~ — that was September; it is 107,548 raw / 93,287 deduped
+- ~~"3,860+ postings scored"~~ — it is **4,280**
+- ~~"built a lakehouse"~~ — Databricks is a parity mirror; Postgres is the warehouse
+- ~~"the agent sends emails"~~ — nothing in this project sends anything
