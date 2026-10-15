@@ -174,9 +174,31 @@ async def run_stream(posting: str, scenario: str | None, client_ip: str,
                 # somebody else's run.
                 api = None
                 if verdict == "model":
-                    api = anthropic.Anthropic(
-                        api_key=os.environ["ANTHROPIC_API_KEY"].strip(),
-                        timeout=30.0, max_retries=1)
+                    # getenv, not os.environ[...]. Bracket access raises KeyError
+                    # when the variable is absent, and that KeyError escapes the
+                    # try below - which only wraps the run itself - so a MISSING
+                    # key took the whole run down with "That run could not be
+                    # completed", while a DEAD key degraded politely to the
+                    # template. The worse failure for the less serious cause.
+                    #
+                    # A missing key is the same situation as a spent budget, and
+                    # the comment above already says what to do about that: no
+                    # client, and every layer below writes deterministically.
+                    # .strip() stays AT the call, not hoisted into the name
+                    # above: tests/test_api_key_hygiene.py requires the api_key
+                    # argument to be a literal .strip() call rather than a name
+                    # that merely reads like one, and that strictness is the
+                    # point of the test.
+                    key = os.getenv("ANTHROPIC_API_KEY", "")
+                    if key.strip():
+                        api = anthropic.Anthropic(api_key=key.strip(),
+                                                  timeout=30.0, max_retries=1)
+                    else:
+                        log.warning("ANTHROPIC_API_KEY is not set; drafting from "
+                                    "the template")
+                        emit({"kind": "note",
+                              "note": "The model is not configured, so this was "
+                                      "written by the template instead."})
                 else:
                     emit({"kind": "note", "note": reason})
                 # No owner=True here, and there is no way to pass one: this
