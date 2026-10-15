@@ -38,10 +38,13 @@
           class: "w-full rounded-md border-gray-300 font-mono text-xs leading-relaxed shadow-sm focus:border-blue-500 focus:ring-blue-500" %>
 
     <div class="flex flex-wrap items-center gap-2">
-      <%= f.submit "Approve", name: "decision", value: "approved",
+      <%# button_tag, not f.submit: an <input type="submit"> shows its VALUE as
+          its label, so "Approve" with value "approved" rendered as "approved".
+          A <button> keeps the two separate. %>
+      <%= button_tag "Approve", type: "submit", name: "decision", value: "approved",
             class: "cursor-pointer rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500" %>
 
-      <%= f.submit "Reject", name: "decision", value: "rejected",
+      <%= button_tag "Reject", type: "submit", name: "decision", value: "rejected",
             class: "cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50" %>
 
       <span class="text-xs text-gray-400">

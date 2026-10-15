@@ -21,11 +21,21 @@
 
       <%# The posting may be gone - delisted, or dropped by dbt's nightly rebuild.
           Saying so is more useful than silently showing nothing, because it tells
-          you the role is probably closed. %>
+          you the role is probably closed.
+
+          Not shown in the sample account: those rows were never in the warehouse
+          to begin with, so "no longer in the warehouse" would be describing the
+          seed data rather than anything about the role. A warning that is always
+          true is a warning nobody reads. %>
       <% if application.posting.nil? %>
-        <p class="mt-1 text-xs text-amber-700">
-          No longer in the warehouse — most likely delisted.
-        </p>
+        <%# Nested rather than `nil? && !demo_mode?`: with the condition flattened,
+            a sample row fell through to the elsif below and called .fit_score on
+            nil, which 500s the whole tracker page for the sample account. %>
+        <% unless demo_mode? %>
+          <p class="mt-1 text-xs text-amber-700">
+            No longer in the warehouse — most likely delisted.
+          </p>
+        <% end %>
       <% elsif application.posting.fit_score.present? %>
         <p class="mt-1 font-mono text-xs text-gray-400">
           fit <%= application.posting.fit_score %> · <%= application.posting.recommendation %>

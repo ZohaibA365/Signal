@@ -32,7 +32,7 @@ class JobApplicationNotesController < ApplicationController
   private
 
   def set_application
-    @application = JobApplication.find(params[:job_application_id])
+    @application = Current.user.job_applications.find(params[:job_application_id])
   end
 
   def note_params

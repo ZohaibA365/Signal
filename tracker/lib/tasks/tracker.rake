@@ -21,10 +21,15 @@ namespace :tracker do
       abort "RECOMMENDATION must be one of: #{Posting::RECOMMENDATIONS.join(', ')}"
     end
 
+    # The owner's account, never the sample one - the sample account is seeded by
+    # db:seed and is read-only by design.
+    owner = User.real.order(:id).first
+    abort "no owner account found; run bin/rails db:seed first" if owner.nil?
+
     candidates = Posting.where(recommendation: wanted).clickable.order(:apply_rank).limit(limit).to_a
     # One query rather than one per row.
-    already = JobApplication.where(source: candidates.map(&:source),
-                                   job_id: candidates.map(&:job_id)).index_by(&:key)
+    already = owner.job_applications.where(source: candidates.map(&:source),
+                                           job_id: candidates.map(&:job_id)).index_by(&:key)
     fresh = candidates.reject { |p| already.key?(p.key) }
 
     puts "#{candidates.size} posting(s) recommended #{wanted.inspect} with a direct link"
@@ -46,7 +51,7 @@ namespace :tracker do
       # Company, title and link are copied, not joined: dbt drops apply_queue
       # nightly and prune.py deletes delisted postings, so a tracked role has to
       # survive the posting disappearing.
-      JobApplication.create!(
+      owner.job_applications.create!(
         source: posting.source, job_id: posting.job_id,
         company_name: posting.company_name, job_title: posting.job_title,
         link_url: posting.link_url, status: "saved", saved_at: Time.current
@@ -58,7 +63,7 @@ namespace :tracker do
     if dry_run
       puts "DRY_RUN: nothing was written."
     else
-      puts "Tracker now holds #{JobApplication.count} role(s)."
+      puts "Tracker now holds #{owner.job_applications.count} role(s)."
       puts "Open /tracker to work through them."
     end
   end

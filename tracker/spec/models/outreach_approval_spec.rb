@@ -19,6 +19,11 @@ RSpec.describe OutreachApproval do
   # Re-read per example, so a test that redrafts does not leak a stale object.
   let(:draft) { OutreachDraft.find_by_key(@draft_key) }
 
+  # Approvals belong to someone since the sample account arrived.
+  let(:user) do
+    User.create!(email_address: "owner@example.com", password: "owner-password-12")
+  end
+
   describe ".canonical" do
     # This is the bug this method exists for. HTML form submission normalises
     # textarea line breaks to CRLF, while the agent wrote the draft with LF. Before
@@ -85,7 +90,7 @@ RSpec.describe OutreachApproval do
 
   describe ".decide!" do
     it "pins an approval to the draft text when nothing was edited" do
-      approval = described_class.decide!(draft, decision: "approved")
+      approval = described_class.decide!(draft, decision: "approved", user: user)
 
       expect(approval).to be_approved
       expect(approval.stale_for?(draft)).to be(false)
@@ -94,7 +99,7 @@ RSpec.describe OutreachApproval do
 
     it "pins an approval to the EDITED text, not the original" do
       edited = "#{draft.draft_email}\n\nPS: one more thing."
-      approval = described_class.decide!(draft, decision: "approved", text: edited)
+      approval = described_class.decide!(draft, decision: "approved", user: user, text: edited)
 
       expect(approval.approved_text).to eq(described_class.canonical(edited))
       expect(approval.draft_fingerprint).to eq(described_class.fingerprint_of(edited))
@@ -104,7 +109,7 @@ RSpec.describe OutreachApproval do
     end
 
     it "stores no text or fingerprint for a rejection" do
-      approval = described_class.decide!(draft, decision: "rejected")
+      approval = described_class.decide!(draft, decision: "rejected", user: user)
 
       expect(approval.approved_text).to be_nil
       expect(approval.draft_fingerprint).to be_nil
@@ -112,10 +117,10 @@ RSpec.describe OutreachApproval do
     end
 
     it "replaces an earlier decision on the same posting rather than duplicating" do
-      described_class.decide!(draft, decision: "rejected")
-      expect { described_class.decide!(draft, decision: "approved") }
+      described_class.decide!(draft, decision: "rejected", user: user)
+      expect { described_class.decide!(draft, decision: "approved", user: user) }
         .not_to change(described_class, :count)
-      expect(described_class.for_key(draft.key)).to be_approved
+      expect(described_class.for_key(draft.key, user: user)).to be_approved
     end
   end
 
@@ -126,7 +131,7 @@ RSpec.describe OutreachApproval do
 
     it "becomes stale when the agent redrafts underneath an approval" do
       @original_text = draft.draft_email
-      approval = described_class.decide!(draft, decision: "approved")
+      approval = described_class.decide!(draft, decision: "approved", user: user)
       redrafted = Warehouse.redraft!(draft, "Subject: different words entirely\n\nHi.")
 
       expect(approval.stale_for?(redrafted)).to be(true)
@@ -134,7 +139,7 @@ RSpec.describe OutreachApproval do
 
     it "is never stale for a rejection, whatever the text does" do
       @original_text = draft.draft_email
-      approval = described_class.decide!(draft, decision: "rejected")
+      approval = described_class.decide!(draft, decision: "rejected", user: user)
       redrafted = Warehouse.redraft!(draft, "anything else")
 
       expect(approval.stale_for?(redrafted)).to be(false)
@@ -143,7 +148,7 @@ RSpec.describe OutreachApproval do
 
   describe "the database, not just the model" do
     it "refuses a decision outside the vocabulary even via raw SQL" do
-      described_class.decide!(draft, decision: "approved")
+      described_class.decide!(draft, decision: "approved", user: user)
 
       expect {
         described_class.connection.execute(
@@ -155,8 +160,9 @@ RSpec.describe OutreachApproval do
     it "refuses an approval with no text to point at" do
       expect {
         described_class.connection.execute(<<~SQL)
-          INSERT INTO tracker.outreach_approvals (source, job_id, decision, decided_at, created_at, updated_at)
-          VALUES ('s', 'j', 'approved', NOW(), NOW(), NOW())
+          INSERT INTO tracker.outreach_approvals
+            (user_id, source, job_id, decision, decided_at, created_at, updated_at)
+          VALUES (#{user.id}, 's', 'j', 'approved', NOW(), NOW(), NOW())
         SQL
       }.to raise_error(ActiveRecord::StatementInvalid, /check constraint/i)
     end

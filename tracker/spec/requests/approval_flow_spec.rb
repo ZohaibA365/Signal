@@ -49,7 +49,7 @@ RSpec.describe "The approval flow" do
         approved_text: draft.draft_email.gsub("\n", "\r\n")
       }
 
-      approval = OutreachApproval.for_key(draft.key)
+      approval = OutreachApproval.for_key(draft.key, user: test_user)
       expect(approval).to be_approved
       expect(approval.stale_for?(draft)).to be(false),
                                             "an unedited draft must not read as stale"
@@ -61,7 +61,7 @@ RSpec.describe "The approval flow" do
         draft_key: draft.key, decision: "approved", approved_text: edited
       }
 
-      approval = OutreachApproval.for_key(draft.key)
+      approval = OutreachApproval.for_key(draft.key, user: test_user)
       expect(approval.approved_text).to eq(OutreachApproval.canonical(edited))
       expect(approval.approved_text).to include("My own words")
     end
@@ -79,7 +79,7 @@ RSpec.describe "The approval flow" do
     it "records the rejection without storing text" do
       post outreach_approvals_path, params: { draft_key: draft.key, decision: "rejected" }
 
-      approval = OutreachApproval.for_key(draft.key)
+      approval = OutreachApproval.for_key(draft.key, user: test_user)
       expect(approval).to be_rejected
       expect(approval.approved_text).to be_nil
     end

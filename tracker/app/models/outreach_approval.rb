@@ -28,10 +28,12 @@ require "digest"
 class OutreachApproval < ApplicationRecord
   DECISIONS = %w[approved rejected].freeze
 
+  belongs_to :user
+
   enum :decision, DECISIONS.index_by(&:itself), validate: true
 
   validates :source, :job_id, presence: true
-  validates :job_id, uniqueness: { scope: :source }
+  validates :job_id, uniqueness: { scope: [ :user_id, :source ] }
   validates :approved_text, :draft_fingerprint, presence: true, if: :approved?
 
   before_validation { self.decided_at ||= Time.current }
@@ -40,9 +42,9 @@ class OutreachApproval < ApplicationRecord
     "#{source}:#{job_id}"
   end
 
-  def self.for_key(key)
+  def self.for_key(key, user:)
     source, job_id = key.to_s.split(":", 2)
-    find_by(source: source, job_id: job_id)
+    where(user: user).find_by(source: source, job_id: job_id)
   end
 
   # The one canonical form a fingerprint is ever taken over.
@@ -74,11 +76,11 @@ class OutreachApproval < ApplicationRecord
   # `text` is what you actually approved - the draft as written, or your edit of
   # it. The fingerprint is computed over THAT, so an edited approval authorises the
   # edited words and nothing else.
-  def self.decide!(draft, decision:, text: nil)
+  def self.decide!(draft, decision:, user:, text: nil)
     approved = decision.to_s == "approved"
     body = approved ? canonical(text.presence || draft.draft_email) : nil
 
-    record = find_or_initialize_by(source: draft.source, job_id: draft.job_id)
+    record = find_or_initialize_by(user: user, source: draft.source, job_id: draft.job_id)
     record.assign_attributes(
       decision: decision,
       approved_text: body,

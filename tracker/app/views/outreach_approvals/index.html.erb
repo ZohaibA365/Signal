@@ -4,10 +4,15 @@
   <header class="mb-5 border-b border-gray-200 pb-4">
     <h1 class="text-2xl font-medium tracking-tight text-gray-900">Outreach approvals</h1>
     <p class="mt-1 max-w-prose text-sm text-gray-500">
-      Drafts the agent wrote, from <code class="font-mono text-xs">public.outreach_tracker</code>.
-      Nothing is sent from here — approving records your decision, and
-      <code class="font-mono text-xs">agent/show_drafts.py --mark-sent</code> refuses
-      without it.
+      <% if demo_mode? %>
+        Sample drafts, so you can see the shape of the thing. Nothing is sent from
+        here — approving records a decision, and the send command refuses without one.
+      <% else %>
+        Drafts the agent wrote, from <code class="font-mono text-xs">public.outreach_tracker</code>.
+        Nothing is sent from here — approving records your decision, and
+        <code class="font-mono text-xs">agent/show_drafts.py --mark-sent</code> refuses
+        without it.
+      <% end %>
     </p>
     <p class="mt-2 font-mono text-xs text-gray-500">
       <%= @drafts.size %> awaiting · <%= @decided %> approved

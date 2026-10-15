@@ -10,6 +10,38 @@ protected and deliberately not part of the public site.
 **Stack:** Ruby 3.4.11 · Rails 8.1.4 · Hotwire (Turbo + Stimulus) · Tailwind ·
 RSpec · PostgreSQL (Neon) · deployed free on Render
 
+![Browse, filter, save a role, approve a draft](docs/walkthrough.gif)
+
+Browsing the scored postings, narrowing them, saving one, and deciding on a draft.
+Nothing reloads: the result list and each row are Turbo Frames.
+
+---
+
+## Have a look around
+
+There is a sample account. Its credentials are on the sign-in page, it holds
+invented data, and it is read-only — every non-GET request from it is refused in
+`ApplicationController`, before any action runs.
+
+```
+sample@signal.app   ·   sample-account
+```
+
+It cannot see the owner's tracked roles, notes, approvals, or the real agent
+drafts in `public.outreach_tracker`; it reads seeded `DemoDraft` rows instead.
+`spec/requests/demo_isolation_spec.rb` proves both halves — what it cannot read
+and what it cannot write — and the suite was checked against deliberately broken
+scoping to confirm those assertions actually fail when isolation does.
+
+| | |
+|---|---|
+| ![Sign in](docs/01-sign-in.png) | ![Browse](docs/02-browse.png) |
+| Sign in, with the sample account offered | Browse — eight filters, four sorts, results in a Turbo Frame |
+| ![Tracker](docs/03-tracker.png) | ![Approvals](docs/04-approvals.png) |
+| Tracker — roles grouped by stage, notes inline | Approvals — each draft editable before a decision |
+
+Every screenshot above is the sample account, so none of it is real.
+
 ---
 
 ## What it does
@@ -219,8 +251,22 @@ project once sat idle in transaction for 22 hours and blocked DDL, and
 The health check is `/up`, which answers without touching the database, so a Neon
 compute that has scaled to zero cannot make Render think the app is unhealthy.
 
-The free instance sleeps after 15 minutes idle and takes ~40s to wake. `plan:
-starter` in `render.yaml` removes that for $7/month with no other change.
+### The free instance sleeps
+
+**It takes about 40 seconds to answer the first request after 15 minutes of
+idleness** — measured, not estimated. Render stops a free instance when nothing
+has hit it, and Neon suspends its compute on the same sort of schedule, so a cold
+visit pays both wake-ups. After that it responds in well under a second until it
+goes quiet again.
+
+Removing it is one word: `plan: free` → `plan: starter` in `render.yaml`, which is
+**$7/month** and keeps the instance running. Nothing else changes — same build,
+same database, same configuration. Neon's own cold start remains, but it is a
+second or two rather than forty.
+
+There is no cheaper way to avoid it. Render has nothing between free and starter,
+and keeping the instance awake by pinging it burns the 750 free instance-hours a
+month that make the free plan free in the first place.
 
 ---
 
@@ -232,4 +278,5 @@ starter` in `render.yaml` removes that for $7/month with no other change.
 | ERB templates | 613 lines |
 | Tables owned | 7, in schema `tracker` (368 kB) |
 | Warehouse relations read | 2, read-only |
-| Tests | 90 RSpec + 13 pytest |
+| Tests | 108 RSpec + 13 pytest |
+| Accounts | the owner's, and a read-only sample account |

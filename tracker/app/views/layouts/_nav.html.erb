@@ -1,6 +1,15 @@
 <%# Three links and a sign-out. There is one user and two pages; a sidebar would
     be furniture. `aria-current` marks the active page for screen readers as well
     as the eye. %>
+<% if demo_mode? %>
+  <%# Said once, at the top, rather than disabling every control: the controller
+      refuses the write regardless, and a page full of greyed-out buttons reads
+      worse than one honest sentence. %>
+  <div class="bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">
+    You are in the sample account — made-up data, and nothing here can be changed.
+  </div>
+<% end %>
+
 <nav class="border-b border-gray-200 bg-white">
   <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-2.5">
     <div class="flex items-baseline gap-5">

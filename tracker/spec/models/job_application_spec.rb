@@ -1,8 +1,13 @@
 require "rails_helper"
 
 RSpec.describe JobApplication do
+  # Rows belong to someone since the sample account arrived.
+  let(:user) do
+    User.create!(email_address: "owner@example.com", password: "owner-password-12")
+  end
+
   subject(:application) do
-    described_class.new(source: "company_board", job_id: "abc",
+    described_class.new(user: user, source: "company_board", job_id: "abc",
                         company_name: "Acme", job_title: "Data Engineer")
   end
 
@@ -17,7 +22,7 @@ RSpec.describe JobApplication do
 
   it "is unique per posting" do
     application.save!
-    duplicate = described_class.new(source: "company_board", job_id: "abc", job_title: "x")
+    duplicate = described_class.new(user: user, source: "company_board", job_id: "abc", job_title: "x")
     expect(duplicate).not_to be_valid
   end
 
@@ -78,8 +83,8 @@ RSpec.describe JobApplication do
 
     it "finds the warehouse row it came from" do
       posting = Posting.find_by_key(@posting_key)
-      app = described_class.create!(source: posting.source, job_id: posting.job_id,
-                                    company_name: posting.company_name, job_title: posting.job_title)
+      app = described_class.create!(user: user, source: posting.source, job_id: posting.job_id,
+                                                  company_name: posting.company_name, job_title: posting.job_title)
       expect(app.posting&.key).to eq(posting.key)
     end
 
@@ -87,7 +92,7 @@ RSpec.describe JobApplication do
     # outright - and dbt rebuilds the whole mart nightly. A tracked role has to
     # survive that, which is why the company and title are copied in at save time.
     it "is nil when the posting has gone, and the row still reads" do
-      app = described_class.create!(source: "company_board", job_id: "vanished",
+      app = described_class.create!(user: user, source: "company_board", job_id: "vanished",
                                     company_name: "Gone Inc", job_title: "Data Engineer")
       expect(app.posting).to be_nil
       expect(app.company_name).to eq("Gone Inc")

@@ -12,6 +12,11 @@
 class JobApplication < ApplicationRecord
   STATUSES = %w[saved applied interviewing rejected offer].freeze
 
+  # Every row belongs to someone. Added when the demo account arrived: before
+  # that this was a single-user app and ownership was implicit, which is exactly
+  # the assumption a public login breaks.
+  belongs_to :user
+
   # Mirrored by a Postgres CHECK constraint, because enforcing a vocabulary only in
   # the application layer is how public.outreach_tracker.status ended up with four
   # legal values that live in a Python tuple and nothing else.
@@ -23,7 +28,7 @@ class JobApplication < ApplicationRecord
            inverse_of: :job_application
 
   validates :source, :job_id, presence: true
-  validates :job_id, uniqueness: { scope: :source }
+  validates :job_id, uniqueness: { scope: [ :user_id, :source ] }
 
   before_validation { self.saved_at ||= Time.current }
 

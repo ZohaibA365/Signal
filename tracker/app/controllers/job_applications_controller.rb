@@ -3,9 +3,9 @@ class JobApplicationsController < ApplicationController
   before_action :set_application, only: [ :update, :destroy ]
 
   def index
-    @applications = JobApplication.includes(:notes).order(updated_at: :desc)
+    @applications = Current.user.job_applications.includes(:notes).order(updated_at: :desc)
     @by_status = @applications.group_by(&:status)
-    @counts = JobApplication.group(:status).count
+    @counts = Current.user.job_applications.group(:status).count
   end
 
   # Save a posting into the tracker.
@@ -19,7 +19,8 @@ class JobApplicationsController < ApplicationController
     posting = Posting.find_by_key(params[:posting_key])
     return redirect_back_with("That posting is no longer in the warehouse.") if posting.nil?
 
-    @application = JobApplication.find_or_initialize_by(source: posting.source, job_id: posting.job_id)
+    @application = Current.user.job_applications
+                          .find_or_initialize_by(source: posting.source, job_id: posting.job_id)
     @application.assign_attributes(
       company_name: posting.company_name,
       job_title: posting.job_title,
@@ -49,7 +50,8 @@ class JobApplicationsController < ApplicationController
   private
 
   def set_application
-    @application = JobApplication.find(params[:id])
+    # scoped: a crafted id for someone else's row must 404, not load
+    @application = Current.user.job_applications.find(params[:id])
   end
 
   # Both pages render the same control, so both get updated the same way: replace

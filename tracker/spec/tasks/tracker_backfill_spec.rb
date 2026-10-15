@@ -13,6 +13,12 @@ RSpec.describe "tracker:backfill" do
     Tracker::Application.load_tasks
   end
 
+  # The task saves into the owner's account. Created per example so the
+  # transaction rolls it back; the warehouse rows above are committed and shared.
+  let!(:owner) do
+    User.create!(email_address: "owner@example.com", password: "owner-password-12", demo: false)
+  end
+
   after(:all) { Warehouse.reset! }
 
   def run(env = {})

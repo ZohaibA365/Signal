@@ -15,5 +15,5 @@
 <% end %>
 
 <%= turbo_stream.replace "tracker_counts" do %>
-  <%= render "job_applications/counts", counts: JobApplication.group(:status).count %>
+  <%= render "job_applications/counts", counts: Current.user.job_applications.group(:status).count %>
 <% end %>

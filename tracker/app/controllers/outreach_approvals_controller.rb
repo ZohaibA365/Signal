@@ -6,10 +6,10 @@
 # explicit human approval marker. This controller writes that marker.
 class OutreachApprovalsController < ApplicationController
   def index
-    @drafts = OutreachDraft.awaiting_decision.to_a
+    @drafts = draft_source.awaiting_decision.to_a
 
     # One query for every decision, keyed the same way the drafts are.
-    @approvals = OutreachApproval
+    @approvals = Current.user.outreach_approvals
                  .where(source: @drafts.map(&:source), job_id: @drafts.map(&:job_id))
                  .index_by(&:key)
 
@@ -17,7 +17,7 @@ class OutreachApprovalsController < ApplicationController
   end
 
   def create
-    draft = OutreachDraft.find_by_key(params[:draft_key])
+    draft = draft_source.find_by_key(params[:draft_key])
     return redirect_with("That draft is no longer in the warehouse.") if draft.nil?
 
     decision = params[:decision].to_s
@@ -28,7 +28,8 @@ class OutreachApprovalsController < ApplicationController
     # `text` is what you actually approved - the draft as written, or your edit of
     # it. The fingerprint is computed over THAT, so an edited approval authorises
     # the edited words and nothing else.
-    @approval = OutreachApproval.decide!(draft, decision: decision, text: params[:approved_text])
+    @approval = OutreachApproval.decide!(draft, decision: decision, user: Current.user,
+                                         text: params[:approved_text])
     @draft = draft
 
     respond_to do |format|
@@ -38,6 +39,13 @@ class OutreachApprovalsController < ApplicationController
   end
 
   private
+
+  # The demo account never sees real agent output. public.outreach_tracker holds
+  # actual unsent emails about real companies; DemoDraft holds seeded samples.
+  # Choosing here rather than in the view means a view cannot get it wrong.
+  def draft_source
+    Current.user.demo? ? DemoDraft : OutreachDraft
+  end
 
   def redirect_with(message)
     redirect_to outreach_approvals_path, alert: message
